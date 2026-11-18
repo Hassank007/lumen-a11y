@@ -44,6 +44,30 @@ export async function generate(
   };
 }
 
+/**
+ * Streaming version: calls onText with the text so far as it arrives, so long
+ * answers (plain-language rewrites) show progress instead of a long wait.
+ */
+export async function generateStream(
+  parts: Array<string | Part>,
+  opts: { privacy: Privacy; cloudModel: string },
+  onText: (textSoFar: string) => void,
+): Promise<AIResult> {
+  const t0 = performance.now();
+  const res = await model(opts.privacy, false, opts.cloudModel).generateContentStream(parts);
+  let text = '';
+  for await (const chunk of res.stream) {
+    text += chunk.text();
+    onText(text);
+  }
+  const final = await res.response;
+  return {
+    text: text.trim(),
+    source: final.inferenceSource ?? 'unknown',
+    ms: Math.round(performance.now() - t0),
+  };
+}
+
 /** Fetch an image the page shows and turn it into an inline part the model can read. */
 export async function imagePart(src: string): Promise<Part> {
   const resp = await fetch(src);

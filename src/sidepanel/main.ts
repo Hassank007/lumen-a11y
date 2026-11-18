@@ -2,7 +2,7 @@ import type { ImageIssue, ImageOk, LinkIssue } from '../lib/scan';
 import { fill } from '../lib/prompts';
 import { tidyAlt, tidyLink } from '../lib/tidy';
 import { loadRemoteSettings } from '../lib/firebase';
-import { generate, imagePart, type AIResult, type Privacy } from '../lib/ai';
+import { generate, generateStream, imagePart, type AIResult, type Privacy } from '../lib/ai';
 
 interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string }
 
@@ -311,17 +311,38 @@ async function simplify(): Promise<void> {
   const out = $('simplified');
   if (!lastScan?.text) { announce('Scan a page first.'); return; }
   setBusy(btn, true, 'Simplifying…');
+  // Visible progress (not a live region: streaming text would flood a screen reader).
+  const progress = document.createElement('p');
+  progress.className = 'progress';
+  const body = document.createElement('div');
+  out.replaceChildren(progress, body);
+  out.hidden = false;
+  const t0 = performance.now();
+  let gotText = false;
+  const tick = () => {
+    const s = Math.round((performance.now() - t0) / 1000);
+    progress.textContent = gotText ? `Writing… ${s} s` : `Starting the AI model… ${s} s (the first run on a device can take up to a minute)`;
+  };
+  tick();
+  const timer = setInterval(tick, 1000);
+  announce('Simplifying the page. This can take up to a minute on your device.');
   try {
     const { prompts, cloudModel } = await settingsPromise;
-    const r = await generate([fill(prompts.simplify, { text: lastScan.text })], { privacy: privacy(), cloudModel });
-    out.replaceChildren(badge(r), document.createTextNode('\n' + r.text));
-    out.hidden = false;
+    const r = await generateStream([fill(prompts.simplify, { text: lastScan.text })], { privacy: privacy(), cloudModel }, (soFar) => {
+      gotText = true;
+      body.textContent = soFar;
+    });
+    clearInterval(timer);
+    body.textContent = r.text;
+    progress.replaceChildren(badge(r));
     out.focus();
-    announce('Plain-language version ready.');
+    announce(`Plain-language version ready, ${r.source === 'on_device' ? 'written on your device' : 'written in the cloud'} in ${(r.ms / 1000).toFixed(0)} seconds.`);
   } catch (err) {
-    out.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
-    out.hidden = false;
-    announce(out.textContent);
+    clearInterval(timer);
+    progress.textContent = '';
+    body.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+    body.className = 'error';
+    announce(body.textContent);
   } finally { setBusy(btn, false, 'Simplify this page'); }
 }
 

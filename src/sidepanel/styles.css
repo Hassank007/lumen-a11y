@@ -83,3 +83,4 @@ button.applied[disabled] { opacity: 1; cursor: default; }
 .ok-list ul { list-style: none; padding: 0; margin: 8px 0 0; }
 .ok-list li { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .thumb.small { max-width: 96px; max-height: 64px; }
+.simplified .progress { margin: 0 0 6px; white-space: normal; color: var(--muted, inherit); font-size: 0.9rem; }
