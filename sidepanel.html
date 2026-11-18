@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lumen — accessibility copilot</title>
+    <link rel="stylesheet" href="/src/sidepanel/styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to results</a>
+    <header class="top">
+      <h1>Lumen</h1>
+      <p class="tagline">Find and fix accessibility barriers on this page — privately, on your device.</p>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section aria-labelledby="privacy-h" class="card">
+        <h2 id="privacy-h">Privacy</h2>
+        <fieldset>
+          <legend>Where can Lumen run AI?</legend>
+          <label><input type="radio" name="privacy" value="hybrid" checked /> On my device first, cloud if needed</label>
+          <label><input type="radio" name="privacy" value="device-only" /> Only on my device (nothing leaves this computer)</label>
+        </fieldset>
+        <p id="device-status" class="hint">Checking on-device AI…</p>
+      </section>
+
+      <button id="scan" class="primary" type="button">Scan this page</button>
+
+      <section id="results" aria-labelledby="results-h" hidden>
+        <h2 id="results-h">Results for <span id="page-title"></span></h2>
+        <p id="summary"></p>
+
+        <section aria-labelledby="img-h" class="card">
+          <h3 id="img-h">Images needing alt text (<span id="img-count">0</span>)</h3>
+          <button id="fix-all-images" type="button">Write alt text for all images</button>
+          <ul id="img-list" class="issues"></ul>
+          <details id="img-ok" class="ok-list" hidden>
+            <summary><span id="img-ok-count">0</span> already OK</summary>
+            <ul id="img-ok-list"></ul>
+          </details>
+        </section>
+
+        <section aria-labelledby="link-h" class="card">
+          <h3 id="link-h">Unclear links (<span id="link-count">0</span>)</h3>
+          <ul id="link-list" class="issues"></ul>
+        </section>
+
+        <section aria-labelledby="simplify-h" class="card">
+          <h3 id="simplify-h">Plain-language version</h3>
+          <p class="hint">Rewrites the page's main text in short sentences and common words.</p>
+          <button id="simplify" type="button">Simplify this page</button>
+          <div id="simplified" class="simplified" tabindex="-1" hidden></div>
+        </section>
+      </section>
+    </main>
+
+    <div id="status" class="visually-hidden" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/sidepanel/main.ts"></script>
+  </body>
+</html>

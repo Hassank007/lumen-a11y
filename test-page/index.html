@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen test page — Riverside Animal Shelter</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  img { max-width: 100%; height: auto; display: block; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<header><h1>Riverside Animal Shelter</h1></header>
+<main>
+  <h2>Meet this week's dogs</h2>
+  <!-- Issue: missing alt -->
+  <img src="https://picsum.photos/id/237/480/320" width="480" height="320">
+  <p>Bella is a two-year-old Labrador mix who loves long walks. <a href="/adopt/bella">Click here</a> to adopt her.</p>
+
+  <!-- Issue: filename as alt -->
+  <img src="https://picsum.photos/id/1025/480/320" alt="IMG_20261104_0932.jpg" width="480" height="320">
+  <p>Max is a calm senior pug. <a href="/adopt/max">Read more</a></p>
+
+  <!-- Issue: generic alt -->
+  <img src="https://picsum.photos/id/1062/480/320" alt="image" width="480" height="320">
+
+  <!-- Fine: decorative, should be skipped -->
+  <img src="https://picsum.photos/id/10/480/40" alt="" width="480" height="40">
+
+  <!-- Fine: good alt, should be skipped -->
+  <img src="https://picsum.photos/id/1074/480/320" alt="A lioness resting in tall golden grass" width="480" height="320">
+
+  <!-- Issue: empty link -->
+  <p>Follow us: <a href="https://example.com/shelter"><span></span></a></p>
+
+  <h2>Adoption policy</h2>
+  <p>Pursuant to the shelter's operational guidelines, prospective adopters are required to furnish documentary evidence of residential tenancy or ownership, accompanied by written authorisation from the landlord where applicable, prior to the commencement of the adoption assessment procedure. Applicants must additionally demonstrate the availability of adequate financial resources for the ongoing provision of veterinary care, nutrition and associated expenses, and must acknowledge that the shelter reserves the right, at its sole discretion, to decline any application without the obligation to furnish reasons, notwithstanding any prior communication that may have been construed as indicative of approval. <a href="/policy">More</a></p>
+</main>
+</body>
+</html>

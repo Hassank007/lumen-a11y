@@ -1,0 +1,24 @@
+{
+  "name": "lumen-a11y",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumen — on-device accessibility copilot (Chrome extension) using Firebase AI Logic hybrid inference.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build && vite build --config vite.content.config.ts",
+    "dev": "vite build --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "firebase": "^13.4.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "jsdom": "^29.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
