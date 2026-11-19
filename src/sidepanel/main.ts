@@ -4,7 +4,7 @@ import { recordingToWav } from '../lib/audio';
 import { fill } from '../lib/prompts';
 import { tidyAlt, tidyLink } from '../lib/tidy';
 import { loadRemoteSettings } from '../lib/firebase';
-import { generate, generateStream, imagePart, transcribe, type AIResult, type Privacy } from '../lib/ai';
+import { generate, generateStream, imagePart, transcribe, voiceAvailability, type AIResult, type Privacy } from '../lib/ai';
 
 interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string; outline?: PageOutline; email?: string | null }
 
@@ -57,6 +57,10 @@ async function checkDevice(): Promise<void> {
       ? 'Gemini Nano is ready on this device.'
       : a === 'unavailable' ? 'This device can\'t run Gemini Nano. Lumen will use the cloud.'
       : 'Gemini Nano can be downloaded to this device (one time, about 4 GB).';
+    const v = await voiceAvailability();
+    el.textContent += v === 'available' ? ' Voice questions run on this device too.'
+      : v === 'unavailable' ? " Voice questions use the cloud here (Nano can't hear audio on this device)."
+      : ' On-device voice downloads the first time you ask by voice.';
   } catch { el.textContent = 'Couldn\'t check on-device AI.'; }
 }
 
@@ -549,7 +553,11 @@ async function toggleMic(): Promise<void> {
     try {
       const wav = await recordingToWav(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
       const { cloudModel } = await settingsPromise;
-      const r = await transcribe(wav, { privacy: privacy(), cloudModel });
+      const r = await transcribe(wav, {
+        privacy: privacy(),
+        cloudModel,
+        onDownload: (f) => { $('mic-status').textContent = `Getting on-device speech ready (one time): ${Math.round(f * 100)}%`; },
+      });
       if (!r.text) throw new Error("Lumen didn't hear a question. Try again, a little closer to the microphone.");
       micStatus(`Heard: "${r.text}" (${r.source === 'on_device' ? 'on your device' : 'in the cloud'})`);
       await ask(r.text);

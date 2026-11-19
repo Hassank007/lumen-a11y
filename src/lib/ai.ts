@@ -91,22 +91,50 @@ interface ChromeLanguageModel {
   create(o?: unknown): Promise<{ prompt(input: unknown): Promise<string>; destroy(): void }>;
 }
 
+const AUDIO_IN = { expectedInputs: [{ type: 'audio' }], expectedOutputs: [{ type: 'text', languages: ['en'] }] };
+
+function chromeLM(): ChromeLanguageModel | undefined {
+  return (globalThis as unknown as { LanguageModel?: ChromeLanguageModel }).LanguageModel;
+}
+
+/** "available", "downloadable", "downloading" or "unavailable": can Gemini Nano hear audio on this device? */
+export async function voiceAvailability(): Promise<string> {
+  const lm = chromeLM();
+  if (!lm) return 'unavailable';
+  return lm.availability(AUDIO_IN).catch(() => 'unavailable');
+}
+
 /**
  * Speech to text for voice questions. Firebase AI Logic's on-device path accepts
  * only images, so on the device this calls Chrome's built-in Gemini Nano directly
- * (Prompt API, audio input). If Nano can't hear audio here, hybrid mode falls back
+ * (Prompt API, audio input). The first time, Chrome may need to download audio
+ * support for Nano; Lumen does that (the click counts as the user's go-ahead) and
+ * reports progress. If Nano can't hear audio here at all, hybrid mode falls back
  * to Gemini in the cloud through Firebase AI Logic; device-only mode never does.
  */
-export async function transcribe(wav: Blob, opts: { privacy: Privacy; cloudModel: string }): Promise<AIResult> {
+export async function transcribe(
+  wav: Blob,
+  opts: { privacy: Privacy; cloudModel: string; onDownload?: (fraction: number) => void },
+): Promise<AIResult> {
   const t0 = performance.now();
-  const lm = (globalThis as unknown as { LanguageModel?: ChromeLanguageModel }).LanguageModel;
-  const audioIn = { expectedInputs: [{ type: 'audio' }], expectedOutputs: [{ type: 'text', languages: ['en'] }] };
-  if (lm && (await lm.availability(audioIn).catch(() => 'unavailable')) === 'available') {
-    const session = await lm.create(audioIn);
+  const lm = chromeLM();
+  const avail = await voiceAvailability();
+  if (lm && avail !== 'unavailable') {
     try {
-      const text = await session.prompt([{ role: 'user', content: [{ type: 'text', value: TRANSCRIBE_PROMPT }, { type: 'audio', value: wav }] }]);
-      return { text: text.trim(), source: 'on_device', ms: Math.round(performance.now() - t0) };
-    } finally { session.destroy(); }
+      const session = await lm.create({
+        ...AUDIO_IN,
+        monitor(m: EventTarget) {
+          m.addEventListener('downloadprogress', (e) => opts.onDownload?.((e as Event & { loaded: number }).loaded));
+        },
+      });
+      try {
+        const text = await session.prompt([{ role: 'user', content: [{ type: 'text', value: TRANSCRIBE_PROMPT }, { type: 'audio', value: wav }] }]);
+        return { text: text.trim(), source: 'on_device', ms: Math.round(performance.now() - t0) };
+      } finally { session.destroy(); }
+    } catch (err) {
+      if (opts.privacy === 'device-only') throw err;
+      console.warn('Lumen: on-device voice failed, using the cloud', err);
+    }
   }
   if (opts.privacy === 'device-only') {
     throw new Error('Voice questions need Gemini Nano with audio on this device. Type your question, or allow the cloud in Privacy.');
