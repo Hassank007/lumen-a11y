@@ -271,6 +271,13 @@ function button(text: string, context: string): HTMLButtonElement {
   return b;
 }
 
+function emptyItem(text: string): HTMLLIElement {
+  const li = document.createElement('li');
+  li.className = 'empty';
+  li.textContent = text;
+  return li;
+}
+
 /** Changes a button's visible text, keeping any hidden context after it. */
 function setText(b: HTMLButtonElement, text: string): void {
   const first = b.firstChild;
@@ -289,13 +296,13 @@ async function scan(): Promise<void> {
     $('page-title').textContent = lastScan.title || lastScan.url;
     $('img-count').textContent = String(lastScan.images.length);
     $('link-count').textContent = String(lastScan.links.length);
-    $('img-list').replaceChildren(...lastScan.images.map(renderImage));
+    $('img-list').replaceChildren(...(lastScan.images.length ? lastScan.images.map(renderImage) : [emptyItem('No images on this page need alt text.')]));
     const ok = lastScan.imagesOk ?? [];
     $('img-ok-count').textContent = `${ok.length} image${ok.length === 1 ? '' : 's'}`;
     $('img-ok-list').replaceChildren(...ok.map(renderImageOk));
     $<HTMLDetailsElement>('img-ok').hidden = ok.length === 0;
     $<HTMLDetailsElement>('img-ok').open = false;
-    $('link-list').replaceChildren(...lastScan.links.map(renderLink));
+    $('link-list').replaceChildren(...(lastScan.links.length ? lastScan.links.map(renderLink) : [emptyItem('No unclear links on this page.')]));
     $<HTMLButtonElement>('fix-all-images').hidden = lastScan.images.length === 0;
     const checked = lastScan.images.length + ok.length;
     const summary = `Checked ${checked} image${checked === 1 ? '' : 's'}: ${lastScan.images.length} need${lastScan.images.length === 1 ? 's' : ''} alt text, ${ok.length} already OK. Found ${lastScan.links.length} unclear link${lastScan.links.length === 1 ? '' : 's'}.`;

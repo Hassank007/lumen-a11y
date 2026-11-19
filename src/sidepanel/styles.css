@@ -111,3 +111,4 @@ button.applied[disabled] { opacity: 1; cursor: default; }
 .inline-check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
 .inline-check input { width: 18px; height: 18px; }
 #mic-status { margin: 6px 0; }
+.issues li.empty { color: var(--muted); }
