@@ -52,6 +52,7 @@ export async function loadRemoteSettings(): Promise<{ prompts: Record<PromptKey,
       prompt_alt_text: DEFAULT_PROMPTS.altText,
       prompt_link_text: DEFAULT_PROMPTS.linkText,
       prompt_simplify: DEFAULT_PROMPTS.simplify,
+      prompt_ask: DEFAULT_PROMPTS.ask,
       cloud_model: fallback.cloudModel,
     };
     await fetchAndActivate(rc);
@@ -60,6 +61,7 @@ export async function loadRemoteSettings(): Promise<{ prompts: Record<PromptKey,
         altText: getValue(rc, 'prompt_alt_text').asString(),
         linkText: getValue(rc, 'prompt_link_text').asString(),
         simplify: getValue(rc, 'prompt_simplify').asString(),
+        ask: getValue(rc, 'prompt_ask').asString(),
       },
       cloudModel: getValue(rc, 'cloud_model').asString(),
     };

@@ -18,8 +18,10 @@ Open the Lumen side panel on any page and press **Scan this page**.
 
 | Feature | What happens |
 |---|---|
+| **Accessibility check** | Runs **axe-core** (WCAG 2.2 A and AA) on the live page and shows the number of issues **before Lumen** and **now**. After every fix you apply, it checks again, so you can watch the number drop. Rules Lumen can fix are marked. |
+| **Ask about this page** | Ask a question in plain words ("What is this page about?", "How do I contact them?") and get a short answer from the page's own content, with the exact name of any link or button so you can find it with your screen reader. On the device first. |
 | **Alt text** | Lists images with no text alternative (and, separately, the images that are already fine). Lumen writes short alt text from the image itself. Press **Apply to page** to add it to the live page, so your screen reader reads it right away. |
-| **Link text** | Finds links like "click here" and "read more", and links with no text at all, and suggests text that says where the link goes, from the link's surroundings. |
+| **Link text** | Finds links like "click here" and "read more", and links with no text at all, and suggests text that says where the link goes, from the link's surroundings. Applying it rewrites the visible link text, so the spoken name always matches what's on screen (WCAG 2.5.3, Label in Name). |
 | **Plain language** | Rewrites the page's main text in short sentences and common words. The text streams in as it is written. |
 | **Privacy switch** | "On my device first, cloud if needed" (hybrid) or "Only on my device" (nothing leaves the computer). |
 | **Where it ran** | Every answer shows a badge: **On device** or **Cloud**, with the time taken. |
@@ -72,7 +74,7 @@ npm run build
 3. Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked**, and pick the `dist` folder.
 4. Click the Lumen icon to open the side panel, then **Scan this page**.
 
-A test page with known problems is in `test-page/`:
+Two test pages with known problems are in `test-page/`. `demo.html` is a realistic small-business page (axe-core finds 6 issues; after Lumen's fixes, 1 remains, a contrast problem only the site owner can fix):
 
 ```bash
 python -m http.server 8765 --directory test-page
@@ -81,7 +83,7 @@ python -m http.server 8765 --directory test-page
 ## Development
 
 ```bash
-npm test          # Vitest: page scanning and answer tidying (18 tests)
+npm test          # Vitest: page scanning, outline, axe summary, prompts, answer tidying (23 tests)
 npm run typecheck
 npm run dev       # rebuild on change
 ```
@@ -90,7 +92,8 @@ npm run dev       # rebuild on change
 |---|---|
 | `src/lib/ai.ts` | Hybrid model setup, `generate` and `generateStream` |
 | `src/lib/firebase.ts` | Firebase app, App Check, Remote Config |
-| `src/lib/scan.ts` | Finds images without alt text, already-OK images and vague links |
+| `src/lib/scan.ts` | Finds images without alt text, already-OK images and vague links; builds the page outline for questions |
+| `src/lib/audit.ts` | Summarises axe-core results (issues, rules, which ones Lumen fixes) |
 | `src/lib/prompts.ts` | Default prompts (overridable from Remote Config) |
 | `src/lib/tidy.ts` | Trims model answers to usable alt text and link text |
 | `src/content.ts` | Runs in the page: scan, highlight, apply fixes |

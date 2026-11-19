@@ -84,3 +84,20 @@ button.applied[disabled] { opacity: 1; cursor: default; }
 .ok-list li { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .thumb.small { max-width: 96px; max-height: 64px; }
 .simplified .progress { margin: 0 0 6px; white-space: normal; color: var(--muted, inherit); font-size: 0.9rem; }
+
+/* Accessibility check: two big numbers, before vs now. */
+.score { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.score div { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.score dt { font-size: 0.85rem; color: var(--muted); }
+.score dd { margin: 2px 0 0; font-size: 1.6rem; font-weight: 700; }
+.score dd.better { color: var(--ok); }
+.rule-fix { font-size: 0.8rem; font-weight: 600; color: var(--ok); }
+
+/* Ask about this page. */
+.ask-form input { flex: 1 1 160px; min-width: 0; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-height: 36px; }
+.suggest { margin: 8px 0; }
+.chip { font-size: 0.85rem; min-height: 32px; padding: 4px 10px; border-radius: 999px; }
+.ask-log { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+.ask-log li { border-top: 1px solid var(--border); padding-top: 8px; }
+.ask-log .q { font-weight: 600; margin: 0 0 4px; }
+.ask-log .a { margin: 0 0 4px; white-space: pre-wrap; }

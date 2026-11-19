@@ -17,6 +17,13 @@ export const DEFAULT_PROMPTS = {
     'Rewrite the following web page text in plain language for people with cognitive or learning disabilities. ' +
     'Use short sentences, common words, and keep every important fact. Use a short bullet list where it helps. ' +
     'Do not add anything that is not in the text.\n\n{text}',
+  ask:
+    'You help a blind person who uses a screen reader understand a web page. ' +
+    'Answer their question using only the page information below. ' +
+    'Reply in 1 to 3 short sentences of plain text, with no markdown. ' +
+    'If the answer is a link, button or form field, give its exact name in quotes so they can find it with their screen reader. ' +
+    'If the page does not say, reply that the page does not say.\n\n' +
+    'Question: {question}\n\nPage title: {title}\n\nHeadings:\n{headings}\n\nLinks, buttons and fields:\n{controls}\n\nMain text:\n{text}',
 } as const;
 
 export type PromptKey = keyof typeof DEFAULT_PROMPTS;

@@ -125,3 +125,51 @@ export function extractMainText(doc: Document, maxChars = 6000): string {
   });
   return parts.join('\n').slice(0, maxChars);
 }
+
+/** What a screen reader would call this element (a practical approximation of the accessible name). */
+export function nameOf(el: Element): string {
+  const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+  const label = clean(el.getAttribute('aria-label'));
+  if (label) return label;
+  const by = el.getAttribute('aria-labelledby');
+  if (by) {
+    const t = clean(by.split(/\s+/).map((id) => el.ownerDocument.getElementById(id)?.textContent ?? '').join(' '));
+    if (t) return t;
+  }
+  if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
+    const l = clean(el.labels?.[0]?.textContent);
+    if (l) return l;
+    const ph = clean(el.getAttribute('placeholder'));
+    if (ph) return ph;
+  }
+  const text = clean(el.textContent);
+  if (text) return text;
+  const img = el.querySelector('img[alt]');
+  if (img) return clean(img.getAttribute('alt'));
+  return clean(el.getAttribute('title'));
+}
+
+export interface PageOutline { headings: string[]; controls: string[] }
+
+/**
+ * The page as a screen reader user navigates it: headings with levels, then the
+ * links, buttons and form fields by name. Used to answer questions about the page.
+ */
+export function extractOutline(doc: Document, maxHeadings = 40, maxControls = 60): PageOutline {
+  const visible = (el: Element) => !el.closest('[hidden], [aria-hidden="true"]');
+  const headings: string[] = [];
+  doc.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h) => {
+    const t = nameOf(h);
+    if (t && visible(h) && headings.length < maxHeadings) headings.push(`h${h.tagName[1]}: ${t.slice(0, 120)}`);
+  });
+  const seen = new Set<string>();
+  const controls: string[] = [];
+  doc.querySelectorAll('a[href], button, input:not([type="hidden"]), select, textarea').forEach((el) => {
+    if (!visible(el) || controls.length >= maxControls) return;
+    const kind = el.tagName === 'A' ? 'link' : el.tagName === 'BUTTON' || ['submit', 'button', 'reset'].includes((el as HTMLInputElement).type) ? 'button' : 'field';
+    const n = nameOf(el).slice(0, 80) || '(no name)';
+    const key = `${kind}: ${n}`;
+    if (!seen.has(key)) { seen.add(key); controls.push(key); }
+  });
+  return { headings, controls };
+}

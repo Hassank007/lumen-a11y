@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riverside Animal Shelter</title>
+<!-- Demo page for Lumen. It has the accessibility problems typical of small-business sites on purpose. -->
+<style>
+  body { font: 17px/1.6 Georgia, serif; margin: 0; color: #222; background: #fffaf3; }
+  header { background: #2f5d50; color: #fff; padding: 18px 32px; display: flex; justify-content: space-between; align-items: center; }
+  header a { color: #fff; margin-left: 14px; display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: #fff3; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 32px; }
+  .hero { width: 100%; height: 280px; object-fit: cover; border-radius: 12px; }
+  .dogs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .dogs img { width: 100%; height: 170px; object-fit: cover; border-radius: 10px; }
+  .small { color: #aaa; font-size: 14px; }
+  .box { background: #fff; border: 1px solid #e6dccb; border-radius: 12px; padding: 16px 20px; margin: 22px 0; }
+  input { font: inherit; padding: 6px 8px; }
+</style>
+</head>
+<body>
+<header>
+  <strong style="font-size:24px">Riverside Animal Shelter</strong>
+  <nav><a href="https://example.com/facebook"></a><a href="https://example.com/instagram"></a><a href="https://example.com/x"></a></nav>
+</header>
+<main>
+  <img class="hero" src="https://picsum.photos/id/1025/980/280">
+  <h1>Find your new best friend</h1>
+  <p>We rehome around 400 dogs and cats every year across the Riverside valley. <a href="/about">Click here</a> to learn about us.</p>
+
+  <h2>Meet this week's dogs</h2>
+  <div class="dogs">
+    <div><img src="https://picsum.photos/id/237/400/300"><p>Bella, 2, Labrador mix. Loves long walks. <a href="/adopt/bella">Read more</a></p></div>
+    <div><img src="https://picsum.photos/id/1012/400/300" alt="DSC_0412.jpg"><p>Max, 9, calm and gentle. <a href="/adopt/max">Read more</a></p></div>
+    <div><img src="https://picsum.photos/id/169/400/300" alt="photo"><p>Rosie, 4, great with children. <a href="/adopt/rosie">More</a></p></div>
+  </div>
+
+  <div class="box">
+    <h2>Adoption policy</h2>
+    <p>Pursuant to the shelter's operational guidelines, prospective adopters are required to furnish documentary evidence of residential tenancy or ownership, accompanied by written authorisation from the landlord where applicable, prior to the commencement of the adoption assessment procedure. Applicants must additionally demonstrate the availability of adequate financial resources for the ongoing provision of veterinary care, nutrition and associated expenses, and must acknowledge that the shelter reserves the right, at its sole discretion, to decline any application without the obligation to furnish reasons, notwithstanding any prior communication that may have been construed as indicative of approval.</p>
+  </div>
+
+  <div class="box">
+    <h2>Visit or contact us</h2>
+    <p>Open Tuesday to Sunday, 10 am to 5 pm. Closed on Mondays.</p>
+    <p>14 Mill Lane, Riverside. Phone 01632 960 455. Email hello@riverside-shelter.example.</p>
+    <p>Get our newsletter: <input type="email" placeholder="you@example.com"> <button>Join</button></p>
+    <p class="small">Registered charity no. 1182 447. Photos by volunteers.</p>
+  </div>
+</main>
+</body>
+</html>

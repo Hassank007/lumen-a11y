@@ -1,16 +1,18 @@
-import type { ImageIssue, ImageOk, LinkIssue } from '../lib/scan';
+import type { ImageIssue, ImageOk, LinkIssue, PageOutline } from '../lib/scan';
+import { issueCount, type AuditSummary } from '../lib/audit';
 import { fill } from '../lib/prompts';
 import { tidyAlt, tidyLink } from '../lib/tidy';
 import { loadRemoteSettings } from '../lib/firebase';
 import { generate, generateStream, imagePart, type AIResult, type Privacy } from '../lib/ai';
 
-interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string }
+interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string; outline?: PageOutline }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
 let settingsPromise = loadRemoteSettings();
 let tabId: number | null = null;
 let lastScan: ScanResult | null = null;
+let baseline: AuditSummary | null = null;
 
 /** Polite screen-reader announcement (clear first so repeats are spoken). */
 function announce(msg: string): void {
@@ -235,6 +237,7 @@ function wireApply(
       result.textContent = successText();
       result.hidden = false;
       announce(result.textContent);
+      scheduleRecheck();
     } catch (err) {
       setBusy(apply, false, 'Apply to page');
       const m = err instanceof Error ? err.message : String(err);
@@ -262,7 +265,7 @@ async function scan(): Promise<void> {
   setBusy(btn, true, 'Scanning…');
   try {
     tabId = await activeTabId();
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['axe.min.js', 'content.js'] });
     lastScan = await send<ScanResult>({ type: 'lumen:scan' });
     $('page-title').textContent = lastScan.title || lastScan.url;
     $('img-count').textContent = String(lastScan.images.length);
@@ -282,6 +285,9 @@ async function scan(): Promise<void> {
     announce(summary);
     $('results-h').setAttribute('tabindex', '-1');
     $('results-h').focus();
+    $('ask-log').replaceChildren();
+    baseline = null;
+    void runAudit();
   } catch (err) {
     announce(err instanceof Error ? err.message : String(err));
     $('summary').textContent = err instanceof Error ? err.message : String(err);
@@ -354,3 +360,98 @@ document.querySelectorAll('input[name="privacy"]').forEach((r) => r.addEventList
 }));
 void checkDevice();
 settingsPromise = settingsPromise.catch(() => loadRemoteSettings());
+
+// ---------- Accessibility check (axe-core, before vs now) ----------
+let recheckTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleRecheck(): void {
+  clearTimeout(recheckTimer);
+  recheckTimer = setTimeout(() => void runAudit(), 700);
+}
+
+function renderRules(a: AuditSummary): void {
+  $('rule-list').replaceChildren(...a.rules.map((r) => {
+    const li = document.createElement('li');
+    li.textContent = `${r.help}: ${r.count} (${r.impact})`;
+    if (r.lumenFixes) {
+      const tag = document.createElement('span');
+      tag.className = 'rule-fix';
+      tag.textContent = ' · Lumen can fix this';
+      li.append(tag);
+    }
+    return li;
+  }));
+  $<HTMLDetailsElement>('rules').hidden = a.rules.length === 0;
+}
+
+async function runAudit(): Promise<void> {
+  const btn = $<HTMLButtonElement>('recheck');
+  setBusy(btn, true, 'Checking…');
+  try {
+    const a = await send<AuditSummary | { error: string }>({ type: 'lumen:audit' });
+    if ('error' in a) throw new Error(a.error);
+    const now = $('score-now');
+    if (!baseline) {
+      baseline = a;
+      $('score-before').textContent = issueCount(a.issues);
+      now.textContent = issueCount(a.issues);
+      now.classList.remove('better');
+      const fixable = a.rules.filter((r) => r.lumenFixes).reduce((n, r) => n + r.count, 0);
+      $('score-note').textContent = fixable ? `${issueCount(fixable)} of these Lumen can fix. Apply fixes below and the check updates.` : 'Nothing here that Lumen fixes automatically.';
+    } else {
+      now.textContent = issueCount(a.issues);
+      now.classList.toggle('better', a.issues < baseline.issues);
+      const fixed = baseline.issues - a.issues;
+      $('score-note').textContent = fixed > 0 ? `${issueCount(fixed)} fixed by Lumen on this page.` : 'No change yet.';
+      announce(`Accessibility check: ${issueCount(baseline.issues)} before, ${issueCount(a.issues)} now.`);
+    }
+    renderRules(a);
+  } catch (err) {
+    $('score-note').textContent = `Couldn't run the check: ${err instanceof Error ? err.message : String(err)}`;
+  } finally { setBusy(btn, false, 'Check again'); }
+}
+
+// ---------- Ask about this page ----------
+async function ask(question: string): Promise<void> {
+  const q = question.trim();
+  if (!q) { announce('Type a question first.'); $('ask-q').focus(); return; }
+  if (!lastScan) { announce('Scan a page first.'); return; }
+  const btn = $<HTMLButtonElement>('ask-btn');
+  setBusy(btn, true, 'Thinking…');
+  const li = document.createElement('li');
+  const qp = document.createElement('p');
+  qp.className = 'q';
+  qp.textContent = q;
+  const ap = document.createElement('p');
+  ap.className = 'a';
+  ap.textContent = 'Thinking…';
+  li.append(qp, ap);
+  $('ask-log').prepend(li);
+  try {
+    const { prompts, cloudModel } = await settingsPromise;
+    const o = lastScan.outline ?? { headings: [], controls: [] };
+    const prompt = fill(prompts.ask, {
+      question: q,
+      title: lastScan.title,
+      headings: o.headings.join('\n') || '(none)',
+      controls: o.controls.join('\n') || '(none)',
+      text: lastScan.text.slice(0, 3500),
+    });
+    const r = await generateStream([prompt], { privacy: privacy(), cloudModel }, (soFar) => { ap.textContent = soFar; });
+    ap.textContent = r.text;
+    li.append(badge(r));
+    announce(r.text);
+  } catch (err) {
+    ap.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+    ap.className = 'a error';
+    announce(ap.textContent);
+  } finally { setBusy(btn, false, 'Ask'); }
+}
+
+$('recheck').addEventListener('click', () => void runAudit());
+$('ask-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = $<HTMLInputElement>('ask-q');
+  void ask(input.value);
+  input.value = '';
+});
+document.querySelectorAll<HTMLButtonElement>('.suggest .chip').forEach((b) => b.addEventListener('click', () => void ask(b.textContent ?? '')));

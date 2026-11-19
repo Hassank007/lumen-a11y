@@ -30,6 +30,38 @@
         <h2 id="results-h">Results for <span id="page-title"></span></h2>
         <p id="summary"></p>
 
+        <section aria-labelledby="score-h" class="card">
+          <h3 id="score-h">Accessibility check</h3>
+          <p class="hint">axe-core, WCAG 2.2 A and AA rules, on the live page.</p>
+          <dl class="score">
+            <div><dt>Before Lumen</dt><dd id="score-before">…</dd></div>
+            <div><dt>Now</dt><dd id="score-now">…</dd></div>
+          </dl>
+          <p id="score-note" class="hint"></p>
+          <button id="recheck" type="button">Check again</button>
+          <details id="rules" class="ok-list" hidden>
+            <summary>What the check found</summary>
+            <ul id="rule-list"></ul>
+          </details>
+        </section>
+
+        <section aria-labelledby="ask-h" class="card">
+          <h3 id="ask-h">Ask about this page</h3>
+          <form id="ask-form" class="ask-form">
+            <label for="ask-q">Your question</label>
+            <div class="row">
+              <input id="ask-q" type="text" autocomplete="off" />
+              <button type="submit" id="ask-btn">Ask</button>
+            </div>
+          </form>
+          <div class="row suggest" role="group" aria-label="Example questions">
+            <button type="button" class="chip">What is this page about?</button>
+            <button type="button" class="chip">What can I do on this page?</button>
+            <button type="button" class="chip">How do I contact them?</button>
+          </div>
+          <ol id="ask-log" class="ask-log" aria-label="Answers"></ol>
+        </section>
+
         <section aria-labelledby="img-h" class="card">
           <h3 id="img-h">Images needing alt text (<span id="img-count">0</span>)</h3>
           <button id="fix-all-images" type="button">Write alt text for all images</button>
