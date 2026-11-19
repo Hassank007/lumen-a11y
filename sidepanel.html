@@ -31,17 +31,27 @@
         <p id="summary"></p>
 
         <section aria-labelledby="score-h" class="card">
-          <h3 id="score-h">Accessibility check</h3>
-          <p class="hint">axe-core, WCAG 2.2 A and AA rules, on the live page.</p>
-          <dl class="score">
-            <div><dt>Before Lumen</dt><dd id="score-before">…</dd></div>
-            <div><dt>Now</dt><dd id="score-now">…</dd></div>
-          </dl>
-          <p id="score-note" class="hint"></p>
-          <button id="recheck" type="button">Check again</button>
-          <details id="rules" class="ok-list" hidden>
-            <summary>What the check found</summary>
-            <ul id="rule-list"></ul>
+          <h3 id="score-h">Barriers on this page</h3>
+          <p id="barrier-summary" class="barrier-summary">Checking…</p>
+          <button id="tell-owner" type="button" hidden>Tell the site owner</button>
+          <div id="owner-box" class="owner-box" hidden>
+            <label for="owner-text">Message to the site owner (you can edit it)</label>
+            <textarea id="owner-text" rows="9"></textarea>
+            <div class="row">
+              <button id="owner-copy" type="button">Copy message</button>
+              <a id="owner-mail" class="button-link" hidden>Open in my email app</a>
+            </div>
+            <p id="owner-result" class="apply-result" hidden></p>
+          </div>
+          <details id="dev-details" class="ok-list">
+            <summary>Details for site owners and developers</summary>
+            <p class="hint">Automatic check with axe-core (WCAG 2.2 A and AA rules) on the live page. Automatic checks find only part of all accessibility problems.</p>
+            <dl class="score">
+              <div><dt>Before Lumen</dt><dd id="score-before">…</dd></div>
+              <div><dt>Now</dt><dd id="score-now">…</dd></div>
+            </dl>
+            <button id="recheck" type="button">Check again</button>
+            <ul id="rule-list" class="rule-list"></ul>
           </details>
         </section>
 
@@ -52,8 +62,11 @@
             <div class="row">
               <input id="ask-q" type="text" autocomplete="off" />
               <button type="submit" id="ask-btn">Ask</button>
+              <button type="button" id="mic"><span aria-hidden="true">🎤 </span><span id="mic-label">Ask by voice</span></button>
             </div>
           </form>
+          <p id="mic-status" class="hint" hidden></p>
+          <label class="inline-check"><input type="checkbox" id="read-aloud" /> Read answers aloud (for people who don't use a screen reader)</label>
           <div class="row suggest" role="group" aria-label="Example questions">
             <button type="button" class="chip">What is this page about?</button>
             <button type="button" class="chip">What can I do on this page?</button>

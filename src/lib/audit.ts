@@ -37,3 +37,41 @@ export function summarizeAxe(violations: AxeLikeViolation[]): AuditSummary {
 export function issueCount(n: number): string {
   return `${n} issue${n === 1 ? '' : 's'}`;
 }
+
+/** "6 barriers" / "1 barrier" */
+export function barrierCount(n: number): string {
+  return `${n} barrier${n === 1 ? '' : 's'}`;
+}
+
+/** What the user reads first: plain words, no scores. */
+export function barrierSummary(before: AuditSummary, now: AuditSummary | null): string {
+  if (before.issues === 0) return "The automatic check found no barriers on this page. It can't catch everything, so you can still ask Lumen about the page.";
+  if (!now) {
+    const fixable = before.rules.filter((r) => r.lumenFixes).reduce((n, r) => n + r.count, 0);
+    const owner = before.issues - fixable;
+    if (fixable === 0) return `This page has ${barrierCount(before.issues)} Lumen can't fix. You can tell the site owner.`;
+    return `This page has ${barrierCount(before.issues)}. Lumen can fix ${fixable} of them for you below${owner ? `; ${owner} need${owner === 1 ? 's' : ''} the site owner` : ''}.`;
+  }
+  const fixed = Math.max(0, before.issues - now.issues);
+  if (now.issues === 0) return `Lumen fixed all ${barrierCount(fixed)} on this page for you.`;
+  const canFix = now.rules.filter((r) => r.lumenFixes).reduce((n, r) => n + r.count, 0);
+  const owner = now.issues - canFix;
+  const parts = [`Lumen fixed ${barrierCount(fixed)} on this page.`];
+  if (canFix) parts.push(`${canFix} more can be fixed below.`);
+  if (owner) parts.push(`${owner} need${owner === 1 ? 's' : ''} the site owner.`);
+  return parts.join(' ');
+}
+
+/** A short, polite message a visitor can send to the site owner. Lumen's fixes are only in this browser, so it lists everything found. */
+export function ownerMessage(page: { title: string; url: string }, before: AuditSummary): string {
+  const lines = before.rules.map((r) => `- ${r.help} (${r.count} ${r.count === 1 ? 'place' : 'places'})`);
+  return [
+    'Hello,',
+    '',
+    `I had trouble using your page "${page.title}" (${page.url}). An automatic accessibility check (axe-core, WCAG 2.2) found these problems:`,
+    '',
+    ...lines,
+    '',
+    'Fixing them would help disabled visitors, including people who use screen readers, use your site. Thank you!',
+  ].join('\n');
+}

@@ -13,6 +13,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         sidepanel: resolve(import.meta.dirname, 'sidepanel.html'),
+        'mic-permission': resolve(import.meta.dirname, 'mic-permission.html'),
         background: resolve(import.meta.dirname, 'src/background.ts'),
       },
       output: {

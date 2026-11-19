@@ -173,3 +173,11 @@ export function extractOutline(doc: Document, maxHeadings = 40, maxControls = 60
   });
   return { headings, controls };
 }
+
+/** A contact email for the site, from a mailto link or the page text, for "Tell the site owner". */
+export function findContactEmail(doc: Document): string | null {
+  const mailto = doc.querySelector<HTMLAnchorElement>('a[href^="mailto:"]');
+  if (mailto) return decodeURIComponent(mailto.href.replace(/^mailto:/i, '').split('?')[0]) || null;
+  const m = (doc.body?.textContent ?? '').match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/);
+  return m ? m[0].replace(/\.$/, '') : null;
+}

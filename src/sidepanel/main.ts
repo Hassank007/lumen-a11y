@@ -1,11 +1,12 @@
 import type { ImageIssue, ImageOk, LinkIssue, PageOutline } from '../lib/scan';
-import { issueCount, type AuditSummary } from '../lib/audit';
+import { barrierSummary, issueCount, ownerMessage, type AuditSummary } from '../lib/audit';
+import { recordingToWav } from '../lib/audio';
 import { fill } from '../lib/prompts';
 import { tidyAlt, tidyLink } from '../lib/tidy';
 import { loadRemoteSettings } from '../lib/firebase';
-import { generate, generateStream, imagePart, type AIResult, type Privacy } from '../lib/ai';
+import { generate, generateStream, imagePart, transcribe, type AIResult, type Privacy } from '../lib/ai';
 
-interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string; outline?: PageOutline }
+interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string; outline?: PageOutline; email?: string | null }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
@@ -62,7 +63,7 @@ async function checkDevice(): Promise<void> {
 function setBusy(btn: HTMLButtonElement, busy: boolean, label?: string): void {
   btn.disabled = busy;
   btn.setAttribute('aria-busy', String(busy));
-  if (label) btn.textContent = label;
+  if (label) setText(btn, label);
 }
 
 function errorLine(li: HTMLElement, err: unknown): void {
@@ -98,9 +99,9 @@ function renderImage(issue: ImageIssue, index: number): HTMLLIElement {
 
   const row = document.createElement('div');
   row.className = 'row';
-  const gen = button(`Write alt text`, `Write alt text for image ${index + 1}`);
-  const apply = button(`Apply to page`, `Apply alt text to image ${index + 1}`);
-  const show = button(`Show on page`, `Show image ${index + 1} on the page`);
+  const gen = button('Write alt text', `image ${index + 1}`);
+  const apply = button('Apply to page', `image ${index + 1}`);
+  const show = button('Show on page', `image ${index + 1}`);
   apply.disabled = true;
   row.append(gen, apply, show);
   li.append(thumb, reason, label, field, row);
@@ -141,7 +142,7 @@ function renderImageOk(o: ImageOk, index: number): HTMLLIElement {
   thumb.alt = '';
   const p = document.createElement('p');
   p.textContent = okReason(o);
-  const show = button('Show on page', `Show OK image ${index + 1} on the page`);
+  const show = button('Show on page', `OK image ${index + 1}`);
   show.addEventListener('click', () => send({ type: 'lumen:highlight', id: o.id }));
   li.append(thumb, p, show);
   return li;
@@ -161,9 +162,9 @@ function renderLink(issue: LinkIssue, index: number): HTMLLIElement {
   field.type = 'text';
   const row = document.createElement('div');
   row.className = 'row';
-  const gen = button('Suggest text', `Suggest text for link ${index + 1}`);
-  const apply = button('Apply to page', `Apply text to link ${index + 1}`);
-  const show = button('Show on page', `Show link ${index + 1} on the page`);
+  const gen = button('Suggest text', `link ${index + 1}`);
+  const apply = button('Apply to page', `link ${index + 1}`);
+  const show = button('Show on page', `link ${index + 1}`);
   apply.disabled = true;
   row.append(gen, apply, show);
   li.append(desc, label, field, row);
@@ -208,7 +209,7 @@ function wireApply(
   li.append(result);
 
   const reset = () => {
-    apply.textContent = 'Apply to page';
+    setText(apply, 'Apply to page');
     apply.classList.remove('applied');
     apply.disabled = field.value.trim() === '';
     result.hidden = true;
@@ -231,7 +232,7 @@ function wireApply(
       const res = await send<{ ok: boolean } | undefined>(msg);
       if (!res?.ok) throw new Error(`Couldn't find ${what} on the page any more. Scan the page again.`);
       void send({ type: 'lumen:highlight', id: msg.id, color: '#2e7d32' }).catch(() => undefined);
-      apply.textContent = 'Applied ✓';
+      setText(apply, 'Applied ✓');
       apply.classList.add('applied');
       apply.setAttribute('aria-busy', 'false');
       result.textContent = successText();
@@ -251,12 +252,26 @@ function wireApply(
   });
 }
 
-function button(text: string, accessibleName: string): HTMLButtonElement {
+/**
+ * Button whose spoken name is its visible text plus which item it acts on
+ * ("Apply to page, image 2"). The visible words come first, so voice-control
+ * users can say what they see (WCAG 2.5.3, Label in Name).
+ */
+function button(text: string, context: string): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.textContent = text;
-  if (accessibleName !== text) b.setAttribute('aria-label', accessibleName);
+  const extra = document.createElement('span');
+  extra.className = 'visually-hidden';
+  extra.textContent = `, ${context}`;
+  b.append(document.createTextNode(text), extra);
   return b;
+}
+
+/** Changes a button's visible text, keeping any hidden context after it. */
+function setText(b: HTMLButtonElement, text: string): void {
+  const first = b.firstChild;
+  if (first && first.nodeType === Node.TEXT_NODE && b.childNodes.length > 1) first.nodeValue = text;
+  else b.textContent = text;
 }
 
 // ---------- Scan ----------
@@ -286,6 +301,8 @@ async function scan(): Promise<void> {
     $('results-h').setAttribute('tabindex', '-1');
     $('results-h').focus();
     $('ask-log').replaceChildren();
+    $('owner-box').hidden = true;
+    $('barrier-summary').textContent = 'Checking…';
     baseline = null;
     void runAudit();
   } catch (err) {
@@ -342,6 +359,7 @@ async function simplify(): Promise<void> {
     body.textContent = r.text;
     progress.replaceChildren(badge(r));
     out.focus();
+    speak(r.text);
     announce(`Plain-language version ready, ${r.source === 'on_device' ? 'written on your device' : 'written in the cloud'} in ${(r.ms / 1000).toFixed(0)} seconds.`);
   } catch (err) {
     clearInterval(timer);
@@ -361,7 +379,8 @@ document.querySelectorAll('input[name="privacy"]').forEach((r) => r.addEventList
 void checkDevice();
 settingsPromise = settingsPromise.catch(() => loadRemoteSettings());
 
-// ---------- Accessibility check (axe-core, before vs now) ----------
+// ---------- Barriers (axe-core, before vs now) ----------
+// The user sees plain words first; numbers and rule names are in a collapsed section for site owners.
 let recheckTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleRecheck(): void {
   clearTimeout(recheckTimer);
@@ -380,7 +399,6 @@ function renderRules(a: AuditSummary): void {
     }
     return li;
   }));
-  $<HTMLDetailsElement>('rules').hidden = a.rules.length === 0;
 }
 
 async function runAudit(): Promise<void> {
@@ -390,24 +408,70 @@ async function runAudit(): Promise<void> {
     const a = await send<AuditSummary | { error: string }>({ type: 'lumen:audit' });
     if ('error' in a) throw new Error(a.error);
     const now = $('score-now');
-    if (!baseline) {
-      baseline = a;
-      $('score-before').textContent = issueCount(a.issues);
-      now.textContent = issueCount(a.issues);
-      now.classList.remove('better');
-      const fixable = a.rules.filter((r) => r.lumenFixes).reduce((n, r) => n + r.count, 0);
-      $('score-note').textContent = fixable ? `${issueCount(fixable)} of these Lumen can fix. Apply fixes below and the check updates.` : 'Nothing here that Lumen fixes automatically.';
-    } else {
-      now.textContent = issueCount(a.issues);
-      now.classList.toggle('better', a.issues < baseline.issues);
-      const fixed = baseline.issues - a.issues;
-      $('score-note').textContent = fixed > 0 ? `${issueCount(fixed)} fixed by Lumen on this page.` : 'No change yet.';
-      announce(`Accessibility check: ${issueCount(baseline.issues)} before, ${issueCount(a.issues)} now.`);
-    }
+    const first = !baseline;
+    if (!baseline) baseline = a;
+    $('score-before').textContent = issueCount(baseline.issues);
+    now.textContent = issueCount(a.issues);
+    now.classList.toggle('better', a.issues < baseline.issues);
+    const summary = barrierSummary(baseline, first ? null : a);
+    $('barrier-summary').textContent = summary;
+    $<HTMLButtonElement>('tell-owner').hidden = baseline.issues === 0;
     renderRules(a);
+    if (!first) announce(summary);
   } catch (err) {
-    $('score-note').textContent = `Couldn't run the check: ${err instanceof Error ? err.message : String(err)}`;
+    $('barrier-summary').textContent = `Couldn't check this page: ${err instanceof Error ? err.message : String(err)}`;
   } finally { setBusy(btn, false, 'Check again'); }
+}
+
+// ---------- Tell the site owner ----------
+function showOwnerMessage(): void {
+  if (!lastScan || !baseline) return;
+  const text = $<HTMLTextAreaElement>('owner-text');
+  text.value = ownerMessage({ title: lastScan.title || lastScan.url, url: lastScan.url }, baseline);
+  const mail = $<HTMLAnchorElement>('owner-mail');
+  if (lastScan.email) {
+    mail.href = `mailto:${lastScan.email}?subject=${encodeURIComponent(`Accessibility problems on ${lastScan.title || 'your website'}`)}&body=${encodeURIComponent(text.value)}`;
+    mail.textContent = `Open in my email app (to ${lastScan.email})`;
+    mail.hidden = false;
+  } else mail.hidden = true;
+  $('owner-result').hidden = true;
+  $('owner-box').hidden = false;
+  text.focus();
+  announce('Message ready. You can edit it, copy it, or open it in your email app. Nothing is sent until you send it.');
+}
+
+async function copyOwnerMessage(): Promise<void> {
+  const r = $('owner-result');
+  try {
+    await navigator.clipboard.writeText($<HTMLTextAreaElement>('owner-text').value);
+    r.textContent = "Copied. Paste it into the site's contact form or an email.";
+    r.classList.remove('error');
+  } catch {
+    r.textContent = "Couldn't copy. Select the message and press Ctrl+C.";
+    r.classList.add('error');
+  }
+  r.hidden = false;
+  announce(r.textContent ?? '');
+}
+
+// ---------- Read answers aloud (optional, for people who don't use a screen reader) ----------
+const readAloud = $<HTMLInputElement>('read-aloud');
+chrome.storage?.local.get('readAloud').then((v) => { readAloud.checked = Boolean(v.readAloud); }).catch(() => undefined);
+readAloud.addEventListener('change', () => {
+  void chrome.storage?.local.set({ readAloud: readAloud.checked });
+  if (!readAloud.checked) speechSynthesis.cancel();
+  announce(readAloud.checked ? 'Lumen will read answers aloud.' : 'Lumen will not read answers aloud.');
+});
+
+/** Speaks with a voice installed on this computer (local, so nothing is sent anywhere). */
+function speak(text: string): void {
+  if (!readAloud.checked || !text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const voices = speechSynthesis.getVoices();
+  u.voice = voices.find((v) => v.localService && v.lang.startsWith('en')) ?? voices.find((v) => v.localService) ?? null;
+  u.lang = u.voice?.lang ?? 'en-US';
+  speechSynthesis.speak(u);
 }
 
 // ---------- Ask about this page ----------
@@ -440,6 +504,7 @@ async function ask(question: string): Promise<void> {
     ap.textContent = r.text;
     li.append(badge(r));
     announce(r.text);
+    speak(r.text);
   } catch (err) {
     ap.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
     ap.className = 'a error';
@@ -447,7 +512,61 @@ async function ask(question: string): Promise<void> {
   } finally { setBusy(btn, false, 'Ask'); }
 }
 
+// ---------- Ask by voice ----------
+let recorder: MediaRecorder | null = null;
+let stopTimer: ReturnType<typeof setTimeout> | undefined;
+
+function micStatus(text: string): void {
+  const s = $('mic-status');
+  s.textContent = text;
+  s.hidden = false;
+  announce(text);
+}
+
+async function toggleMic(): Promise<void> {
+  const label = $('mic-label');
+  if (recorder?.state === 'recording') { recorder.stop(); return; }
+  if (!lastScan) { announce('Scan a page first.'); return; }
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+    micStatus('Allow the microphone in the tab that just opened, then come back and press Ask by voice again.');
+    return;
+  }
+  const chunks: Blob[] = [];
+  const rec = new MediaRecorder(stream);
+  recorder = rec;
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = async () => {
+    clearTimeout(stopTimer);
+    stream.getTracks().forEach((t) => t.stop());
+    label.textContent = 'Ask by voice';
+    const mic = $<HTMLButtonElement>('mic');
+    mic.disabled = true;
+    micStatus('Turning your voice into text…');
+    try {
+      const wav = await recordingToWav(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
+      const { cloudModel } = await settingsPromise;
+      const r = await transcribe(wav, { privacy: privacy(), cloudModel });
+      if (!r.text) throw new Error("Lumen didn't hear a question. Try again, a little closer to the microphone.");
+      micStatus(`Heard: "${r.text}" (${r.source === 'on_device' ? 'on your device' : 'in the cloud'})`);
+      await ask(r.text);
+    } catch (err) {
+      micStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally { mic.disabled = false; }
+  };
+  rec.start();
+  label.textContent = 'Stop and ask';
+  micStatus('Listening. Ask your question, then press Stop and ask.');
+  stopTimer = setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 15000);
+}
+
 $('recheck').addEventListener('click', () => void runAudit());
+$('tell-owner').addEventListener('click', showOwnerMessage);
+$('owner-copy').addEventListener('click', () => void copyOwnerMessage());
+$('mic').addEventListener('click', () => void toggleMic());
 $('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const input = $<HTMLInputElement>('ask-q');

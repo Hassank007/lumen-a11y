@@ -3,7 +3,7 @@
  * It scans the page and applies fixes the user approves, so real assistive
  * technology on that page benefits immediately.
  */
-import { extractMainText, extractOutline, findImageIssues, findImagesOk, findLinkIssues } from './lib/scan';
+import { extractMainText, extractOutline, findContactEmail, findImageIssues, findImagesOk, findLinkIssues } from './lib/scan';
 import { AXE_TAGS, summarizeAxe } from './lib/audit';
 
 type Msg =
@@ -34,6 +34,7 @@ if (!window.__lumenLoaded) {
           links: findLinkIssues(document),
           text: extractMainText(document),
           outline: extractOutline(document),
+          email: findContactEmail(document),
         });
         break;
       case 'lumen:audit':

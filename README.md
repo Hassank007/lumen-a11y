@@ -18,8 +18,11 @@ Open the Lumen side panel on any page and press **Scan this page**.
 
 | Feature | What happens |
 |---|---|
-| **Accessibility check** | Runs **axe-core** (WCAG 2.2 A and AA) on the live page and shows the number of issues **before Lumen** and **now**. After every fix you apply, it checks again, so you can watch the number drop. Rules Lumen can fix are marked. |
-| **Ask about this page** | Ask a question in plain words ("What is this page about?", "How do I contact them?") and get a short answer from the page's own content, with the exact name of any link or button so you can find it with your screen reader. On the device first. |
+| **Barriers, in plain words** | "This page has 6 barriers. Lumen can fix 5 of them for you below; 1 needs the site owner." Lumen runs **axe-core** (WCAG 2.2 A and AA) on the live page and checks again after every fix you apply, so the message updates as barriers go away. The numbers and rule names are in a collapsed section for site owners and developers. |
+| **Tell the site owner** | Drafts a short, polite message listing the problems found, which you can edit, copy, or open in your email app (Lumen finds the site's contact email). Lumen's fixes only live in your browser, so this is how a page gets fixed for everyone. Nothing is sent by Lumen. |
+| **Ask about this page** | Ask in plain words ("What is this page about?", "How do I contact them?") and get a short answer from the page's own content, with the exact name of any link or button so you can find it with your screen reader. |
+| **Ask by voice** | Press the microphone, ask, press Stop. Gemini Nano turns your voice into text **on the device** (Chrome's Prompt API with audio input), then answers. In hybrid mode it falls back to Gemini in the cloud if Nano can't hear audio on this computer; in "Only on my device" mode it never does. |
+| **Read answers aloud** | Optional, off by default, for people who don't use a screen reader (low vision, dyslexia, cognitive disabilities). Uses a voice installed on the computer. Screen reader users don't need it: Lumen sends every result to their screen reader through a live region. |
 | **Alt text** | Lists images with no text alternative (and, separately, the images that are already fine). Lumen writes short alt text from the image itself. Press **Apply to page** to add it to the live page, so your screen reader reads it right away. |
 | **Link text** | Finds links like "click here" and "read more", and links with no text at all, and suggests text that says where the link goes, from the link's surroundings. Applying it rewrites the visible link text, so the spoken name always matches what's on screen (WCAG 2.5.3, Label in Name). |
 | **Plain language** | Rewrites the page's main text in short sentences and common words. The text streams in as it is written. |
@@ -27,6 +30,12 @@ Open the Lumen side panel on any page and press **Scan this page**.
 | **Where it ran** | Every answer shows a badge: **On device** or **Cloud**, with the time taken. |
 
 Lumen only changes the page in your own browser tab. It never edits the website itself.
+
+## Who it's for
+
+- **Blind and low-vision people who use a screen reader:** ask about any page (by keyboard or voice), get images described and links named, and tell the site owner what's broken.
+- **People with cognitive or learning disabilities, low literacy, or reading in a second language:** the plain-language rewrite, with optional read-aloud.
+- **Testers, developers and content authors:** the axe-core details and ready-made fixes.
 
 ## How the hybrid works
 
@@ -41,6 +50,7 @@ getGenerativeModel(ai, {
 - **On device:** Chrome's built-in Gemini Nano (the Prompt API), including image input for alt text. Private, works offline, no cost per call.
 - **Cloud fallback:** Gemini through Firebase AI Logic, when Nano isn't available on the machine or hasn't downloaded yet.
 - **`inferenceSource`** from each response drives the On device / Cloud badge, so the user always knows where their data went.
+- **Voice:** Firebase AI Logic's on-device path accepts images (JPEG, PNG) but not audio yet, so voice questions call Chrome's Prompt API directly with audio input, and use Firebase AI Logic (`ONLY_IN_CLOUD`) for the cloud fallback. Recordings are converted to 16 kHz WAV, which both accept.
 
 Firebase products used:
 
@@ -54,7 +64,9 @@ An accessibility tool has to be accessible. The side panel:
 
 - uses real headings, a labelled privacy fieldset and native buttons;
 - announces scan results, applied fixes and finished rewrites through one polite live region, without stealing focus;
-- moves focus to the results heading after a scan and to the plain-language result when it's ready, and keeps the streaming progress line out of the live region so it doesn't chatter;
+- moves focus to the results heading after a scan and to the plain-language result when it's ready,
+- gives every repeated button a name that starts with its visible text ("Apply to page, image 2"), so voice-control users can say what they see (WCAG 2.5.3),
+- passes axe-core with 0 violations (WCAG 2.2 A and AA), checked in a real browser, and keeps the streaming progress line out of the live region so it doesn't chatter;
 - is built from native controls, so everything works with the keyboard alone, with visible focus.
 
 The person who built it is a Section 508 Trusted Tester.
@@ -83,7 +95,7 @@ python -m http.server 8765 --directory test-page
 ## Development
 
 ```bash
-npm test          # Vitest: page scanning, outline, axe summary, prompts, answer tidying (23 tests)
+npm test          # Vitest: scanning, outline, barrier summary, owner message, audio, prompts, tidying (30 tests)
 npm run typecheck
 npm run dev       # rebuild on change
 ```
@@ -93,7 +105,8 @@ npm run dev       # rebuild on change
 | `src/lib/ai.ts` | Hybrid model setup, `generate` and `generateStream` |
 | `src/lib/firebase.ts` | Firebase app, App Check, Remote Config |
 | `src/lib/scan.ts` | Finds images without alt text, already-OK images and vague links; builds the page outline for questions |
-| `src/lib/audit.ts` | Summarises axe-core results (issues, rules, which ones Lumen fixes) |
+| `src/lib/audit.ts` | Summarises axe-core results, writes the plain-words summary and the message to the site owner |
+| `src/lib/audio.ts` | Converts voice recordings to 16 kHz WAV |
 | `src/lib/prompts.ts` | Default prompts (overridable from Remote Config) |
 | `src/lib/tidy.ts` | Trims model answers to usable alt text and link text |
 | `src/content.ts` | Runs in the page: scan, highlight, apply fixes |

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Allow the microphone — Lumen</title>
+    <link rel="stylesheet" href="/src/sidepanel/styles.css" />
+  </head>
+  <body>
+    <main id="main">
+      <h1>Allow Lumen to use your microphone</h1>
+      <p>Chrome can't ask for the microphone inside the side panel, so Lumen asks here, once.</p>
+      <p>Lumen only listens after you press "Ask by voice", until you press "Stop and ask". On your device it turns your voice into text with Gemini Nano. In "Only on my device" mode, your voice never leaves this computer.</p>
+      <button id="allow" class="primary" type="button">Allow microphone</button>
+      <p id="result" role="status"></p>
+    </main>
+    <script type="module" src="/src/mic-permission.ts"></script>
+  </body>
+</html>

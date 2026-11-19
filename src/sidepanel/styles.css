@@ -101,3 +101,13 @@ button.applied[disabled] { opacity: 1; cursor: default; }
 .ask-log li { border-top: 1px solid var(--border); padding-top: 8px; }
 .ask-log .q { font-weight: 600; margin: 0 0 4px; }
 .ask-log .a { margin: 0 0 4px; white-space: pre-wrap; }
+
+/* Barriers: plain words first. */
+.barrier-summary { font-size: 1.05rem; font-weight: 600; margin: 4px 0 10px; }
+.owner-box { display: grid; gap: 6px; margin: 10px 0; }
+.owner-box textarea { width: 100%; font: inherit; font-size: 0.9rem; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+.button-link { display: inline-flex; align-items: center; min-height: 36px; padding: 6px 14px; border-radius: 8px; border: 2px solid var(--accent); color: var(--text); text-decoration: none; }
+.rule-list { padding-left: 18px; margin: 8px 0 0; }
+.inline-check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
+.inline-check input { width: 18px; height: 18px; }
+#mic-status { margin: 6px 0; }

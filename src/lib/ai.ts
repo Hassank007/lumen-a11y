@@ -82,3 +82,40 @@ export async function imagePart(src: string): Promise<Part> {
   });
   return { type: 'inlineData', inlineData: { mimeType, data } };
 }
+
+const TRANSCRIBE_PROMPT =
+  'Transcribe this spoken question exactly, in the language it is spoken. Reply with the question text only, no quotes, no extra words.';
+
+interface ChromeLanguageModel {
+  availability(o?: unknown): Promise<string>;
+  create(o?: unknown): Promise<{ prompt(input: unknown): Promise<string>; destroy(): void }>;
+}
+
+/**
+ * Speech to text for voice questions. Firebase AI Logic's on-device path accepts
+ * only images, so on the device this calls Chrome's built-in Gemini Nano directly
+ * (Prompt API, audio input). If Nano can't hear audio here, hybrid mode falls back
+ * to Gemini in the cloud through Firebase AI Logic; device-only mode never does.
+ */
+export async function transcribe(wav: Blob, opts: { privacy: Privacy; cloudModel: string }): Promise<AIResult> {
+  const t0 = performance.now();
+  const lm = (globalThis as unknown as { LanguageModel?: ChromeLanguageModel }).LanguageModel;
+  const audioIn = { expectedInputs: [{ type: 'audio' }], expectedOutputs: [{ type: 'text', languages: ['en'] }] };
+  if (lm && (await lm.availability(audioIn).catch(() => 'unavailable')) === 'available') {
+    const session = await lm.create(audioIn);
+    try {
+      const text = await session.prompt([{ role: 'user', content: [{ type: 'text', value: TRANSCRIBE_PROMPT }, { type: 'audio', value: wav }] }]);
+      return { text: text.trim(), source: 'on_device', ms: Math.round(performance.now() - t0) };
+    } finally { session.destroy(); }
+  }
+  if (opts.privacy === 'device-only') {
+    throw new Error('Voice questions need Gemini Nano with audio on this device. Type your question, or allow the cloud in Privacy.');
+  }
+  if (!isConfigured) throw new Error('Firebase is not configured.');
+  const ai = getAI(getFirebaseApp(), { backend: new GoogleAIBackend() });
+  const cloud = getGenerativeModel(ai, { mode: InferenceMode.ONLY_IN_CLOUD, inCloudParams: { model: opts.cloudModel } });
+  const { base64 } = await import('./audio');
+  const data = base64(new Uint8Array(await wav.arrayBuffer()));
+  const res = await cloud.generateContent([TRANSCRIBE_PROMPT, { type: 'inlineData', inlineData: { mimeType: 'audio/wav', data } }]);
+  return { text: res.response.text().trim(), source: res.response.inferenceSource ?? 'in_cloud', ms: Math.round(performance.now() - t0) };
+}
