@@ -1,6 +1,6 @@
 # Lumen: an on-device accessibility copilot for Chrome
 
-Lumen is a Chrome extension that finds and fixes accessibility barriers on any web page: images with no alt text, links that say "click here", and dense text that is hard to read. It runs **Gemini Nano on your device first**, so page content stays on your computer, and falls back to Gemini in the cloud only when the device can't do the job. You choose which.
+Lumen is a Chrome extension that finds accessibility barriers on regular web pages and fixes some of them in your browser: images with no alt text, links that say "click here", and dense text that is hard to read. It runs **Gemini Nano on your device first** and falls back to Gemini in the cloud when Nano isn't available. You can also turn cloud AI off.
 
 Built for the **#BuildHybridAI 2026** hackathon with **Firebase AI Logic** hybrid inference.
 
@@ -8,9 +8,9 @@ Built for the **#BuildHybridAI 2026** hackathon with **Firebase AI Logic** hybri
 
 - 95.9% of the top one million home pages have detectable WCAG failures, and missing alt text and vague links are among the most common ([WebAIM Million 2026](https://webaim.org/projects/million/)).
 - Screen reader users hear "image" or "link, click here" and have to guess.
-- People with cognitive disabilities or low literacy, and people reading in a second language, struggle with long, dense text.
+- People with cognitive disabilities or low literacy, and people reading in a second language, can struggle with long, dense text.
 
-Sending every page you read to a cloud model is a privacy problem, often on exactly the pages that matter most (health, banking, government). On-device AI fixes that, with the cloud as a safety net.
+Sending every page you read to a cloud model is a privacy problem, often on exactly the pages that matter most (health, banking, government). On-device AI helps with that, with the cloud as an optional fallback.
 
 ## What it does
 
@@ -20,14 +20,14 @@ Open the Lumen side panel on any page and press **Scan this page**.
 |---|---|
 | **Barriers, in plain words** | "This page has 6 barriers. Lumen can fix 5 of them for you below; 1 needs the site owner." Lumen runs **axe-core** (WCAG 2.2 A and AA) on the live page and checks again after every fix you apply, so the message updates as barriers go away. The numbers and rule names are in a collapsed section for site owners and developers. |
 | **Tell the site owner** | Drafts a short, polite message listing the problems found, which you can edit, copy, or open in your email app (Lumen finds the site's contact email). Lumen's fixes only live in your browser, so this is how a page gets fixed for everyone. Nothing is sent by Lumen. |
-| **Ask about this page** | Ask in plain words ("What is this page about?", "How do I contact them?") and get a short answer from the page's own content, with the exact name of any link or button so you can find it with your screen reader. |
-| **Ask by voice** | Press the microphone, ask, press Stop. Gemini Nano turns your voice into text **on the device** (Chrome's Prompt API with audio input), then answers. In hybrid mode it falls back to Gemini in the cloud if Nano can't hear audio on this computer; in "Only on my device" mode it never does. |
-| **Read answers aloud** | Optional, off by default, for people who don't use a screen reader (low vision, dyslexia, cognitive disabilities). Uses a voice installed on the computer. Screen reader users don't need it: Lumen sends every result to their screen reader through a live region. |
-| **Alt text** | Lists images with no text alternative (and, separately, the images that are already fine). Lumen writes short alt text from the image itself. Press **Apply to page** to add it to the live page, so your screen reader reads it right away. |
+| **Ask about this page** | Ask in plain words ("What is this page about?", "How do I contact them?") and get a short answer from the page's own content, and it is told to name the exact link or button, so you can look for it with your screen reader. |
+| **Ask by voice** | Press the microphone, ask, press Stop. Where Chrome says Nano accepts audio, your voice is turned into text on the device (Prompt API audio input). That path has not been tested: Nano can't hear audio on the development laptop, so there Lumen uses Gemini in the cloud in hybrid mode. In "Only on my device" mode it never does. |
+| **Read answers aloud** | Optional, off by default, for people who don't use a screen reader (low vision, dyslexia, cognitive disabilities). Uses only a voice installed on the computer, and stays silent if there is none. Screen reader users shouldn't need it: results also go to a live region. |
+| **Alt text** | Lists images with no text alternative (and, separately, the images that are already fine). Lumen writes short alt text from the image itself. Press **Apply to page** to add it to the live page, where a screen reader can pick it up. |
 | **Link text** | Finds links like "click here" and "read more", and links with no text at all, and suggests text that says where the link goes, from the link's surroundings. Applying it rewrites the visible link text, so the spoken name always matches what's on screen (WCAG 2.5.3, Label in Name). |
 | **Plain language** | Rewrites the page's main text in short sentences and common words. The text streams in as it is written. |
-| **Privacy switch** | "On my device first, cloud if needed" (hybrid) or "Only on my device" (nothing leaves the computer). |
-| **Where it ran** | Every answer shows a badge: **On device** or **Cloud**, with the time taken. |
+| **Privacy switch** | "On my device first, cloud if needed" (hybrid) or "Only on my device" (no cloud AI: page content and questions are not sent to cloud AI). Lumen still contacts Google for its own settings (Remote Config) and App Check, and loads images from the page's site when it describes them. |
+| **Where it ran** | Every AI answer shows a badge: **On device** or **Cloud** (or **Source not reported**), with the time taken. |
 
 Lumen only changes the page in your own browser tab. It never edits the website itself.
 
@@ -47,16 +47,16 @@ getGenerativeModel(ai, {
 });
 ```
 
-- **On device:** Chrome's built-in Gemini Nano (the Prompt API), including image input for alt text. Private, works offline, no cost per call.
+- **On device:** Chrome's built-in Gemini Nano (the Prompt API), including image input for alt text. No cost per call. (Working fully offline has not been tested.)
 - **Cloud fallback:** Gemini through Firebase AI Logic, when Nano isn't available on the machine or hasn't downloaded yet.
-- **`inferenceSource`** from each response drives the On device / Cloud badge, so the user always knows where their data went.
+- **`inferenceSource`** from each response drives the badge, so the user can see where the AI ran.
 - **Voice:** Firebase AI Logic's on-device path accepts images (JPEG, PNG) but not audio yet, so voice questions call Chrome's Prompt API directly with audio input, and use Firebase AI Logic (`ONLY_IN_CLOUD`) for the cloud fallback. Recordings are converted to 16 kHz WAV, which both accept.
 
 Firebase products used:
 
 - **Firebase AI Logic:** hybrid inference (`firebase/ai`), with `generateContent` and `generateContentStream`.
-- **App Check:** protects the Gemini API from abuse. Firebase AI Logic requires it. A Manifest V3 extension can't load reCAPTCHA's remote script, so development uses a registered debug token.
-- **Remote Config:** the prompts and the cloud model name can be tuned without shipping a new version.
+- **App Check:** used with Firebase AI Logic. A Manifest V3 extension can't load reCAPTCHA's remote script, so development uses a registered debug token.
+- **Remote Config:** the code reads the prompts and the cloud model name from Remote Config, with built-in defaults, so they could be changed without a new version.
 
 ## Accessibility of Lumen itself
 
@@ -66,10 +66,12 @@ An accessibility tool has to be accessible. The side panel:
 - announces scan results, applied fixes and finished rewrites through one polite live region, without stealing focus;
 - moves focus to the results heading after a scan and to the plain-language result when it's ready,
 - gives every repeated button a name that starts with its visible text ("Apply to page, image 2"), so voice-control users can say what they see (WCAG 2.5.3),
-- passes axe-core with 0 violations (WCAG 2.2 A and AA), checked in a real browser, and keeps the streaming progress line out of the live region so it doesn't chatter;
-- is built from native controls, so everything works with the keyboard alone, with visible focus.
+- passes axe-core with 0 violations (WCAG 2.2 A and AA), checked in Chromium on 23 Nov 2026 in light and dark, before and after a scan, and keeps the streaming progress line out of the live region so it doesn't chatter;
+- is built from native controls. In the same check every control could be reached with Tab and had a visible focus style.
 
-The person who built it is a Section 508 Trusted Tester.
+Not tested: NVDA, JAWS or other screen readers, and Chrome's real side panel (the checks opened the panel page in a tab). AI answers were not part of these checks.
+
+The project is directed by a Section 508 Trusted Tester.
 
 ## Try it
 
@@ -86,7 +88,7 @@ npm run build
 3. Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked**, and pick the `dist` folder.
 4. Click the Lumen icon to open the side panel, then **Scan this page**.
 
-Two test pages with known problems are in `test-page/`. `demo.html` is a realistic small-business page (axe-core finds 6 issues; after Lumen's fixes, 1 remains, a contrast problem only the site owner can fix):
+Two test pages with known problems are in `test-page/`. `demo.html` is a made-up small-business page with deliberate problems (axe-core finds 6 issues; after Lumen's fixes, 1 remains, a contrast problem only the site owner can fix):
 
 ```bash
 python -m http.server 8765 --directory test-page
@@ -95,7 +97,7 @@ python -m http.server 8765 --directory test-page
 ## Development
 
 ```bash
-npm test          # Vitest: scanning, outline, barrier summary, owner message, audio, prompts, tidying (30 tests)
+npm test          # Vitest: scanning, outline, barrier summary, owner message, audio, prompts, tidying, read-aloud voice (33 tests)
 npm run typecheck
 npm run dev       # rebuild on change
 ```
@@ -108,6 +110,7 @@ npm run dev       # rebuild on change
 | `src/lib/audit.ts` | Summarises axe-core results, writes the plain-words summary and the message to the site owner |
 | `src/lib/audio.ts` | Converts voice recordings to 16 kHz WAV |
 | `src/lib/prompts.ts` | Default prompts (overridable from Remote Config) |
+| `src/lib/speech.ts` | Picks an installed voice for read-aloud; badge text |
 | `src/lib/tidy.ts` | Trims model answers to usable alt text and link text |
 | `src/content.ts` | Runs in the page: scan, highlight, apply fixes |
 | `src/sidepanel/` | The side panel UI |
@@ -117,10 +120,11 @@ npm run dev       # rebuild on change
 - AI-written alt text is a starting point, not a replacement for an author who knows why an image is there. Lumen shows it before you apply it.
 - Fixes apply to your tab only and are lost on reload.
 - On-device mode depends on Chrome downloading Gemini Nano, which can take a while the first time.
+- Speed varies. On the development laptop, on-device answers took 5.4 to 7.4 seconds once the model was loaded; one cold first answer took 42 seconds.
 
 ## Credits
 
-Built by Hassan Ahmed, with Claude Code as a coding assistant (AI assistants are allowed by the hackathon rules).
+By Hassan Ahmed, who directed and tested the project. Claude Code wrote the code, tests and docs (AI assistants are allowed by the hackathon rules).
 
 ## License
 

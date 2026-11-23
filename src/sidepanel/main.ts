@@ -4,6 +4,7 @@ import { recordingToWav } from '../lib/audio';
 import { fill } from '../lib/prompts';
 import { tidyAlt, tidyLink } from '../lib/tidy';
 import { loadRemoteSettings } from '../lib/firebase';
+import { pickLocalVoice, sourceLabel } from '../lib/speech';
 import { generate, generateStream, imagePart, transcribe, voiceAvailability, type AIResult, type Privacy } from '../lib/ai';
 
 interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string; outline?: PageOutline; email?: string | null }
@@ -28,9 +29,8 @@ function privacy(): Privacy {
 
 function badge(r: AIResult): HTMLElement {
   const b = document.createElement('span');
-  const onDevice = r.source === 'on_device';
   b.className = `badge ${r.source}`;
-  b.textContent = `${onDevice ? 'On device' : r.source === 'in_cloud' ? 'Cloud' : 'AI'} · ${(r.ms / 1000).toFixed(1)} s`;
+  b.textContent = `${sourceLabel(r.source)} · ${(r.ms / 1000).toFixed(1)} s`;
   return b;
 }
 
@@ -51,15 +51,15 @@ async function checkDevice(): Promise<void> {
   const el = $('device-status');
   try {
     const lm = (globalThis as unknown as { LanguageModel?: { availability(o?: unknown): Promise<string> } }).LanguageModel;
-    if (!lm) { el.textContent = 'On-device AI isn\'t available in this browser. Lumen will use the cloud.'; return; }
+    if (!lm) { el.textContent = 'On-device AI isn\'t available in this browser. Lumen uses the cloud unless you choose Only on my device.'; return; }
     const a = await lm.availability({ expectedInputs: [{ type: 'image' }] });
     el.textContent = a === 'available'
       ? 'Gemini Nano is ready on this device.'
-      : a === 'unavailable' ? 'This device can\'t run Gemini Nano. Lumen will use the cloud.'
+      : a === 'unavailable' ? 'This device can\'t run Gemini Nano. Lumen uses the cloud unless you choose Only on my device.'
       : 'Gemini Nano can be downloaded to this device (one time, about 4 GB).';
     const v = await voiceAvailability();
     el.textContent += v === 'available' ? ' Voice questions run on this device too.'
-      : v === 'unavailable' ? " Voice questions use the cloud here (Nano can't hear audio on this device)."
+      : v === 'unavailable' ? " Nano can't hear audio on this device, so voice questions use the cloud (not in Only on my device mode)."
       : ' On-device voice downloads the first time you ask by voice.';
   } catch { el.textContent = 'Couldn\'t check on-device AI.'; }
 }
@@ -370,7 +370,7 @@ async function simplify(): Promise<void> {
     body.textContent = r.text;
     progress.replaceChildren(badge(r));
     out.focus();
-    speak(r.text);
+    void speak(r.text);
     announce(`Plain-language version ready, ${r.source === 'on_device' ? 'written on your device' : 'written in the cloud'} in ${(r.ms / 1000).toFixed(0)} seconds.`);
   } catch (err) {
     clearInterval(timer);
@@ -385,7 +385,7 @@ $('scan').addEventListener('click', scan);
 $('fix-all-images').addEventListener('click', fixAllImages);
 $('simplify').addEventListener('click', simplify);
 document.querySelectorAll('input[name="privacy"]').forEach((r) => r.addEventListener('change', () => {
-  announce(privacy() === 'device-only' ? 'On-device only. Page content will not leave this computer.' : 'On-device first, cloud if needed.');
+  announce(privacy() === 'device-only' ? 'Only on my device. Lumen will not send page content or your questions to cloud AI.' : 'On-device first, cloud if needed.');
 }));
 void checkDevice();
 settingsPromise = settingsPromise.catch(() => loadRemoteSettings());
@@ -474,14 +474,31 @@ readAloud.addEventListener('change', () => {
   announce(readAloud.checked ? 'Lumen will read answers aloud.' : 'Lumen will not read answers aloud.');
 });
 
-/** Speaks with a voice installed on this computer (local, so nothing is sent anywhere). */
-function speak(text: string): void {
+/** Chrome loads its voice list late, so an empty list is checked again once it changes (or after a second). */
+async function installedVoice(): Promise<SpeechSynthesisVoice | null> {
+  if (!speechSynthesis.getVoices().length) {
+    await new Promise<void>((done) => {
+      speechSynthesis.addEventListener('voiceschanged', () => done(), { once: true });
+      setTimeout(done, 1000);
+    });
+  }
+  return pickLocalVoice(speechSynthesis.getVoices());
+}
+
+/** Speaks only with a voice installed on this computer; stays silent, and says why, if there is none. */
+async function speak(text: string): Promise<void> {
   if (!readAloud.checked || !text) return;
   speechSynthesis.cancel();
+  const voice = await installedVoice();
+  if (!readAloud.checked) return; // switched off while waiting
+  if (!voice) {
+    $('mic-status').textContent = 'Lumen can\'t read aloud: no voice is installed on this computer.';
+    $('mic-status').hidden = false;
+    return;
+  }
   const u = new SpeechSynthesisUtterance(text);
-  const voices = speechSynthesis.getVoices();
-  u.voice = voices.find((v) => v.localService && v.lang.startsWith('en')) ?? voices.find((v) => v.localService) ?? null;
-  u.lang = u.voice?.lang ?? 'en-US';
+  u.voice = voice;
+  u.lang = voice.lang;
   speechSynthesis.speak(u);
 }
 
@@ -515,7 +532,7 @@ async function ask(question: string): Promise<void> {
     ap.textContent = r.text;
     li.append(badge(r));
     announce(r.text);
-    speak(r.text);
+    void speak(r.text);
   } catch (err) {
     ap.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
     ap.className = 'a error';
