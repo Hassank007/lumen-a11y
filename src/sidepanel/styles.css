@@ -113,5 +113,11 @@ button.applied[disabled] { opacity: 1; cursor: default; }
 #mic-status { margin: 6px 0; }
 .issues li.empty { color: var(--muted); }
 
+/* Where AI may run on this page. The border adds to the words; it never carries the meaning alone. */
+.page-policy { border: 1px solid var(--border); border-left: 5px solid var(--cloud); border-radius: 8px; padding: 8px 12px; margin: 8px 0; background: var(--bg); }
+.page-policy.private { border-left-color: var(--ok); }
+.page-policy p { margin: 0 0 6px; font-weight: 600; }
+.stale { border: 2px solid var(--focus); border-radius: 8px; padding: 8px 12px; font-weight: 600; margin: 12px 0; }
+
 /* The hidden attribute always wins over display rules above. */
 [hidden] { display: none !important; }

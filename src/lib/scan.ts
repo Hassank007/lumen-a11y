@@ -2,6 +2,9 @@
  * Pure page-scanning helpers. They take a Document and return plain data,
  * so they can run in a content script and be unit-tested in jsdom.
  */
+import { isHidden, nameOf } from './names';
+
+export { nameOf };
 
 export interface ImageIssue {
   id: string;            // data-lumen-id assigned to the element
@@ -61,13 +64,13 @@ type Classified =
 
 function classifyImage(img: HTMLImageElement): Classified {
   if (!(img.currentSrc || img.src)) return { kind: 'skip' };
-  if (img.getAttribute('aria-hidden') === 'true' || img.getAttribute('role') === 'presentation') return { kind: 'ok', why: 'hidden' };
-  const alt = img.getAttribute('alt');
-  if (alt === '') return { kind: 'ok', why: 'decorative' }; // explicitly decorative — respect the author's choice
+  if (isHidden(img) || /^(presentation|none)$/.test(img.getAttribute('role') ?? '')) return { kind: 'ok', why: 'hidden' };
+  const name = nameOf(img); // aria-labelledby, aria-label, alt, then title: what a screen reader really says
+  if (img.getAttribute('alt') === '' && !name) return { kind: 'ok', why: 'decorative' }; // explicitly decorative: respect the author's choice
   if (isTooSmallToMatter(img.naturalWidth || img.width, img.naturalHeight || img.height)) return { kind: 'skip' };
-  if (alt === null) return { kind: 'issue', reason: 'missing-alt' };
-  if (looksLikeFilename(alt)) return { kind: 'issue', reason: 'filename-alt' };
-  if (GENERIC_ALT.includes(alt.trim().toLowerCase())) return { kind: 'issue', reason: 'generic-alt' };
+  if (!name) return { kind: 'issue', reason: 'missing-alt' };
+  if (looksLikeFilename(name)) return { kind: 'issue', reason: 'filename-alt' };
+  if (GENERIC_ALT.includes(name.toLowerCase())) return { kind: 'issue', reason: 'generic-alt' };
   return { kind: 'ok', why: 'has-alt' };
 }
 
@@ -77,7 +80,7 @@ export function findImageIssues(doc: Document): ImageIssue[] {
     const c = classifyImage(img);
     if (c.kind !== 'issue') return;
     issues.push({
-      id: tag(img), src: img.currentSrc || img.src, reason: c.reason, currentAlt: img.getAttribute('alt'),
+      id: tag(img), src: img.currentSrc || img.src, reason: c.reason, currentAlt: nameOf(img) || null,
       width: img.naturalWidth || img.width, height: img.naturalHeight || img.height,
     });
   });
@@ -90,24 +93,20 @@ export function findImagesOk(doc: Document): ImageOk[] {
   doc.querySelectorAll('img').forEach((img) => {
     const c = classifyImage(img);
     if (c.kind !== 'ok') return;
-    ok.push({ id: tag(img), src: img.currentSrc || img.src, why: c.why, alt: img.getAttribute('alt') ?? '' });
+    ok.push({ id: tag(img), src: img.currentSrc || img.src, why: c.why, alt: c.why === 'has-alt' ? nameOf(img) : '' });
   });
   return ok;
-}
-
-function accessibleLinkText(a: HTMLAnchorElement): string {
-  const label = a.getAttribute('aria-label');
-  if (label && label.trim()) return label.trim();
-  return (a.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
 export function findLinkIssues(doc: Document): LinkIssue[] {
   const issues: LinkIssue[] = [];
   doc.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((a) => {
-    const text = accessibleLinkText(a);
+    if (isHidden(a)) return;
+    const text = nameOf(a);
     const normalized = text.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').trim();
-    const isEmpty = text.length === 0 && !a.querySelector('img[alt]:not([alt=""])');
-    if (!isEmpty && !VAGUE_LINK_TEXT.includes(normalized)) return;
+    if (text && !VAGUE_LINK_TEXT.includes(normalized)) return;
+    // Lumen already lists the image inside, and describing it names the link too.
+    if (!text && [...a.querySelectorAll('img')].some((i) => classifyImage(i).kind === 'issue')) return;
     const block = a.closest('p, li, td, article, section, div');
     const context = (block?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 400);
     issues.push({ id: tag(a), text, href: a.href, context });
@@ -115,62 +114,85 @@ export function findLinkIssues(doc: Document): LinkIssue[] {
   return issues;
 }
 
-/** Main readable text of the page, for plain-language simplification. */
-export function extractMainText(doc: Document, maxChars = 6000): string {
-  const root = doc.querySelector('main, article, [role="main"]') ?? doc.body;
-  const parts: string[] = [];
-  root?.querySelectorAll('h1, h2, h3, p, li').forEach((el) => {
-    const t = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
-    if (t.length > 0) parts.push(t);
-  });
-  return parts.join('\n').slice(0, maxChars);
+const BLOCK_TAGS = 'h1, h2, h3, h4, h5, h6, p, li, tr, dt, dd, figcaption, caption, address, blockquote, pre, legend, label, summary, div, section, article, main, aside, header, footer, nav, form, body';
+const SKIP_TEXT = 'script, style, noscript, template, svg, iframe, select, textarea';
+
+/** The page's visible text as blocks in reading order. A table row stays on one line, so "Monday | 9 am to 5 pm" keeps its meaning. */
+function textBlocks(root: Element): string[] {
+  const out: string[] = [];
+  let current: Element | null = null;
+  let buffer = '';
+  let cell: Element | null = null;
+  const hidden = new Map<Element, boolean>();
+  const flush = () => {
+    const t = buffer.replace(/\s+/g, ' ').trim();
+    if (t) out.push(t);
+    buffer = '';
+  };
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const parent = n.parentElement;
+    if (!parent || !(n.nodeValue ?? '').trim() || parent.closest(SKIP_TEXT)) {
+      if (buffer) buffer += ' ';
+      continue;
+    }
+    if (!hidden.has(parent)) hidden.set(parent, isHidden(parent));
+    if (hidden.get(parent)) continue;
+    const row = parent.closest('tr');
+    const block = row ?? parent.closest(BLOCK_TAGS) ?? root;
+    if (block !== current) { flush(); current = block; cell = null; }
+    const c = row ? parent.closest('td, th') : null;
+    if (c !== cell) { if (buffer.trim()) buffer += ' | '; cell = c; }
+    buffer += n.nodeValue ?? '';
+  }
+  flush();
+  return out;
 }
 
-/** What a screen reader would call this element (a practical approximation of the accessible name). */
-export function nameOf(el: Element): string {
-  const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
-  const label = clean(el.getAttribute('aria-label'));
-  if (label) return label;
-  const by = el.getAttribute('aria-labelledby');
-  if (by) {
-    const t = clean(by.split(/\s+/).map((id) => el.ownerDocument.getElementById(id)?.textContent ?? '').join(' '));
-    if (t) return t;
-  }
-  if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
-    const l = clean(el.labels?.[0]?.textContent);
-    if (l) return l;
-    const ph = clean(el.getAttribute('placeholder'));
-    if (ph) return ph;
-  }
-  const text = clean(el.textContent);
-  if (text) return text;
-  const img = el.querySelector('img[alt]');
-  if (img) return clean(img.getAttribute('alt'));
-  return clean(el.getAttribute('title'));
+const MAIN = 'main, [role="main"], article';
+
+/** The main readable text, for the plain-language version: no menus, no footer. */
+export function extractMainText(doc: Document, maxChars = 24000): string {
+  const root = doc.querySelector(MAIN) ?? doc.body;
+  return root ? textBlocks(root).join('\n').slice(0, maxChars) : '';
+}
+
+/** Everything on the page, main content first, so answers can come from footers and tables too. */
+export function extractPageBlocks(doc: Document, maxBlocks = 800): string[] {
+  if (!doc.body) return [];
+  const main = doc.querySelector(MAIN);
+  const all = textBlocks(doc.body);
+  if (!main) return all.slice(0, maxBlocks);
+  const first = textBlocks(main);
+  const seen = new Set(first);
+  return [...first.slice(0, maxBlocks - 200), ...all.filter((b) => !seen.has(b)).slice(-200)].slice(0, maxBlocks);
 }
 
 export interface PageOutline { headings: string[]; controls: string[] }
 
 /**
  * The page as a screen reader user navigates it: headings with levels, then the
- * links, buttons and form fields by name. Used to answer questions about the page.
+ * links, buttons and form fields by name, main content first. The whole page is
+ * listed; relevance.ts picks the part that fits a question.
  */
-export function extractOutline(doc: Document, maxHeadings = 40, maxControls = 60): PageOutline {
-  const visible = (el: Element) => !el.closest('[hidden], [aria-hidden="true"]');
+export function extractOutline(doc: Document, maxHeadings = 120, maxControls = 800): PageOutline {
   const headings: string[] = [];
   doc.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h) => {
     const t = nameOf(h);
-    if (t && visible(h) && headings.length < maxHeadings) headings.push(`h${h.tagName[1]}: ${t.slice(0, 120)}`);
+    if (t && headings.length < maxHeadings && !isHidden(h)) headings.push(`h${h.tagName[1]}: ${t.slice(0, 120)}`);
   });
+  const main = doc.querySelector(MAIN);
+  const els = [...doc.querySelectorAll('a[href], button, input:not([type="hidden"]), select, textarea')];
+  const ordered = main ? [...els.filter((e) => main.contains(e)), ...els.filter((e) => !main.contains(e))] : els;
   const seen = new Set<string>();
   const controls: string[] = [];
-  doc.querySelectorAll('a[href], button, input:not([type="hidden"]), select, textarea').forEach((el) => {
-    if (!visible(el) || controls.length >= maxControls) return;
-    const kind = el.tagName === 'A' ? 'link' : el.tagName === 'BUTTON' || ['submit', 'button', 'reset'].includes((el as HTMLInputElement).type) ? 'button' : 'field';
-    const n = nameOf(el).slice(0, 80) || '(no name)';
-    const key = `${kind}: ${n}`;
+  for (const el of ordered) {
+    if (controls.length >= maxControls) break;
+    if (isHidden(el)) continue;
+    const kind = el.tagName === 'A' ? 'link' : el.tagName === 'BUTTON' || ['submit', 'button', 'reset', 'image'].includes((el as HTMLInputElement).type) ? 'button' : 'field';
+    const key = `${kind}: ${nameOf(el).slice(0, 80) || '(no name)'}`;
     if (!seen.has(key)) { seen.add(key); controls.push(key); }
-  });
+  }
   return { headings, controls };
 }
 

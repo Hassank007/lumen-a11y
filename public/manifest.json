@@ -3,7 +3,7 @@
   "name": "Lumen — on-device accessibility copilot",
   "short_name": "Lumen",
   "version": "0.1.0",
-  "description": "Finds and fixes accessibility barriers on any web page — missing alt text, vague links, dense text — privately on your device with Gemini Nano, with cloud fallback via Firebase AI Logic.",
+  "description": "Finds and fixes accessibility barriers on web pages, with AI that stays on your device on pages that look private.",
   "minimum_chrome_version": "138",
   "action": { "default_title": "Open Lumen" },
   "side_panel": { "default_path": "sidepanel.html" },

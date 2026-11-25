@@ -12,8 +12,8 @@ describe('summarizeAxe', () => {
     ]);
     expect(s.issues).toBe(6);
     expect(s.rules.map((r) => r.id)).toEqual(['image-alt', 'color-contrast', 'region']);
-    expect(s.rules[0].lumenFixes).toBe(true);
-    expect(s.rules[1].lumenFixes).toBe(false);
+    expect(s.rules[0].fixable).toBe(2);
+    expect(s.rules[1].fixable).toBe(0);
   });
 
   it('handles a clean page', () => {

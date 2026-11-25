@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lumen: try it in your browser</title>
+    <meta name="description" content="Try Lumen, an accessibility copilot for Chrome, on made-up pages. No install needed." />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <a class="skip" href="#demo-panel">Skip to the Lumen panel</a>
+    <header>
+      <div>
+        <h1>Try Lumen</h1>
+        <p>This is Lumen's panel next to a made-up page. The real Lumen is a Chrome extension that works on regular web pages. <a href="https://github.com/Hassank007/lumen-a11y">Code and extension on GitHub</a></p>
+      </div>
+      <form>
+        <label for="page-choice">Page to try</label>
+        <select id="page-choice">
+          <option value="pages/demo.html">Animal shelter: an ordinary page</option>
+          <option value="pages/clinic.html">Clinic test results: a private page, stays on your device</option>
+          <option value="pages/council.html">Parking rules: a long page, cloud preferred</option>
+        </select>
+      </form>
+    </header>
+    <main>
+      <iframe id="demo-page" title="Made-up page that Lumen checks" src="pages/demo.html"></iframe>
+      <iframe id="demo-panel" title="Lumen panel" src="sidepanel.html" allow="microphone"></iframe>
+    </main>
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

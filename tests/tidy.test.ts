@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tidyAlt, tidyLink } from '../src/lib/tidy';
+import { tidyAlt, tidyLink, tidyPlain } from '../src/lib/tidy';
 
 describe('tidyAlt', () => {
   it('keeps a short answer as is', () => {
@@ -35,5 +35,13 @@ describe('tidyLink', () => {
 
   it('uses the first non-empty line only', () => {
     expect(tidyLink('\nAdopt Bella\nThis link goes to her page')).toBe('Adopt Bella');
+  });
+});
+
+describe('tidyPlain', () => {
+  it('turns markdown into plain text and keeps the words', () => {
+    expect(tidyPlain('## Results\n\n**Reviewed:** 12 November\n\n\n* Less salt\n- More exercise\n[Contact us](/contact)'))
+      .toBe('Results\n\nReviewed: 12 November\n\n• Less salt\n• More exercise\nContact us');
+    expect(tidyPlain('5 - 3 = 2, and 2 * 3 = 6')).toBe('5 - 3 = 2, and 2 * 3 = 6');
   });
 });

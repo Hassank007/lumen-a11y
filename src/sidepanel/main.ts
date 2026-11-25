@@ -1,20 +1,25 @@
-import type { ImageIssue, ImageOk, LinkIssue, PageOutline } from '../lib/scan';
+import { InferenceMode } from 'firebase/ai';
+import type { ImageIssue, ImageOk, LinkIssue } from '../lib/scan';
+import type { PageMessage, ScanResult } from '../lib/page-agent';
 import { barrierSummary, issueCount, ownerMessage, type AuditSummary } from '../lib/audit';
 import { recordingToWav } from '../lib/audio';
 import { fill } from '../lib/prompts';
-import { tidyAlt, tidyLink } from '../lib/tidy';
-import { loadRemoteSettings } from '../lib/firebase';
+import { pickRelevant, splitText } from '../lib/relevance';
+import { tidyAlt, tidyLink, tidyPlain } from '../lib/tidy';
+import { isConfigured, loadRemoteSettings } from '../lib/firebase';
+import { imagePart, safeHref } from '../lib/image';
+import { LONG_TEXT, cloudPermitted, modeFor, policySummary, type PolicyInput, type PrivacyChoice } from '../lib/policy';
 import { pickLocalVoice, sourceLabel } from '../lib/speech';
-import { generate, generateStream, imagePart, transcribe, voiceAvailability, type AIResult, type Privacy } from '../lib/ai';
-
-interface ScanResult { url: string; title: string; images: ImageIssue[]; imagesOk?: ImageOk[]; links: LinkIssue[]; text: string; outline?: PageOutline; email?: string | null }
+import { OnDeviceUnavailable, downloadDeviceModel, generate, generateStream, transcribe, type AIResult } from '../lib/ai';
+import { host } from './host';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $('status');
 let settingsPromise = loadRemoteSettings();
-let tabId: number | null = null;
+const storage = typeof chrome !== 'undefined' ? chrome.storage?.local : undefined; // not in the hosted demo
 let lastScan: ScanResult | null = null;
 let baseline: AuditSummary | null = null;
+let cloudAllowed = false; // for the scanned page only
 
 /** Polite screen-reader announcement (clear first so repeats are spoken). */
 function announce(msg: string): void {
@@ -22,9 +27,29 @@ function announce(msg: string): void {
   setTimeout(() => { status.textContent = msg; }, 50);
 }
 
-function privacy(): Privacy {
+function privacy(): PrivacyChoice {
   const checked = document.querySelector<HTMLInputElement>('input[name="privacy"]:checked');
-  return (checked?.value as Privacy) ?? 'hybrid';
+  return (checked?.value as PrivacyChoice) ?? 'auto';
+}
+
+function policy(long = false): PolicyInput {
+  return { choice: privacy(), sensitive: lastScan?.privacy.sensitive ?? false, cloudAllowed, cloudConfigured: isConfigured, long };
+}
+
+/** Says, for the scanned page, where AI will run, and offers the one choice the user has about it. */
+function renderPolicy(): void {
+  const p = policy();
+  const box = $('page-policy');
+  box.hidden = !lastScan;
+  box.classList.toggle('private', Boolean(lastScan) && !cloudPermitted(p));
+  $('page-policy-text').textContent = policySummary(p, lastScan?.privacy.reasons ?? []);
+  const b = $<HTMLButtonElement>('page-policy-btn');
+  b.hidden = !p.sensitive || p.choice === 'device-only' || !isConfigured;
+  b.textContent = cloudAllowed ? 'Keep this page on my device' : 'Allow cloud AI for this page';
+  const voice = $('voice-note');
+  voice.textContent = cloudPermitted(p)
+    ? 'Voice: your recording is turned into text by cloud AI.'
+    : 'Voice questions need cloud AI, which is off here. Type your question instead.';
 }
 
 function badge(r: AIResult): HTMLElement {
@@ -34,34 +59,42 @@ function badge(r: AIResult): HTMLElement {
   return b;
 }
 
-async function activeTabId(): Promise<number> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url || /^(chrome|edge|about|chrome-extension):/.test(tab.url)) {
-    throw new Error('Open a regular web page first. Lumen can\'t scan browser pages.');
-  }
-  return tab.id;
-}
-
-async function send<T>(message: unknown): Promise<T> {
-  if (tabId === null) throw new Error('No page scanned yet.');
-  return chrome.tabs.sendMessage(tabId, message) as Promise<T>;
-}
+const send = <T>(message: PageMessage): Promise<T> => host.send<T>(message);
 
 async function checkDevice(): Promise<void> {
   const el = $('device-status');
+  const get = $<HTMLButtonElement>('get-device-ai');
+  get.hidden = true;
+  const without = isConfigured
+    ? 'Lumen uses cloud AI, except on private pages and in Only on my device.'
+    : 'This copy of Lumen has no cloud AI either, so AI features are off. Scanning still works.';
   try {
     const lm = (globalThis as unknown as { LanguageModel?: { availability(o?: unknown): Promise<string> } }).LanguageModel;
-    if (!lm) { el.textContent = 'On-device AI isn\'t available in this browser. Lumen uses the cloud unless you choose Only on my device.'; return; }
-    const a = await lm.availability({ expectedInputs: [{ type: 'image' }] });
-    el.textContent = a === 'available'
-      ? 'Gemini Nano is ready on this device.'
-      : a === 'unavailable' ? 'This device can\'t run Gemini Nano. Lumen uses the cloud unless you choose Only on my device.'
-      : 'Gemini Nano can be downloaded to this device (one time, about 4 GB).';
-    const v = await voiceAvailability();
-    el.textContent += v === 'available' ? ' Voice questions run on this device too.'
-      : v === 'unavailable' ? " Nano can't hear audio on this device, so voice questions use the cloud (not in Only on my device mode)."
-      : ' On-device voice downloads the first time you ask by voice.';
-  } catch { el.textContent = 'Couldn\'t check on-device AI.'; }
+    const a = lm ? await lm.availability({ expectedInputs: [{ type: 'text', languages: ['en'] }, { type: 'image' }], expectedOutputs: [{ type: 'text', languages: ['en'] }] }) : 'unavailable';
+    if (a === 'available') el.textContent = 'On-device AI (Gemini Nano) is ready.';
+    else if (a === 'unavailable') el.textContent = `On-device AI isn't available in this browser. ${without}`;
+    else {
+      el.textContent = `On-device AI can be downloaded to this computer (one time, several GB). Until then, ${without.charAt(0).toLowerCase()}${without.slice(1)}`;
+      if (without.startsWith('Lumen')) el.textContent = el.textContent.replace('lumen uses', 'Lumen uses');
+      get.hidden = false;
+    }
+  } catch { el.textContent = "Couldn't check on-device AI."; }
+}
+
+async function getDeviceAI(): Promise<void> {
+  const btn = $<HTMLButtonElement>('get-device-ai');
+  const el = $('device-status');
+  setBusy(btn, true, 'Downloading…');
+  announce('Downloading on-device AI. You can keep using Lumen.');
+  try {
+    const { cloudModel } = await settingsPromise;
+    await downloadDeviceModel(cloudModel, (f) => { el.textContent = `Downloading on-device AI: ${Math.round(f * 100)}%`; });
+    await checkDevice();
+    announce(el.textContent ?? '');
+  } catch (err) {
+    el.textContent = `Couldn't download on-device AI: ${err instanceof Error ? err.message : String(err)}`;
+    announce(el.textContent);
+  } finally { setBusy(btn, false, 'Download on-device AI'); }
 }
 
 function setBusy(btn: HTMLButtonElement, busy: boolean, label?: string): void {
@@ -70,10 +103,18 @@ function setBusy(btn: HTMLButtonElement, busy: boolean, label?: string): void {
   if (label) setText(btn, label);
 }
 
+function errorText(err: unknown): string {
+  const m = err instanceof Error ? err.message : String(err);
+  if (err instanceof OnDeviceUnavailable) {
+    return `${m}${!$('page-policy-btn').hidden ? ' To go on, choose "Allow cloud AI for this page" under Privacy.' : ''}`;
+  }
+  return `Error: ${m}`;
+}
+
 function errorLine(li: HTMLElement, err: unknown): void {
   const p = document.createElement('p');
   p.className = 'error';
-  p.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+  p.textContent = errorText(err);
   li.append(p);
   announce(p.textContent);
 }
@@ -111,18 +152,19 @@ function renderImage(issue: ImageIssue, index: number): HTMLLIElement {
   li.append(thumb, reason, label, field, row);
 
   gen.addEventListener('click', () => writeAlt(issue, index, li, field, gen, apply));
-  wireApply(li, field, apply, `image ${index + 1}`, () => ({ type: 'lumen:apply-alt', id: issue.id, alt: field.value.trim() }),
+  wireApply(li, row, field, apply, `image ${index + 1}`, () => ({ type: 'lumen:apply-alt', id: issue.id, alt: field.value.trim() }),
     () => field.value.trim() === 'DECORATIVE' ? `Image ${index + 1} is now marked decorative, so screen readers skip it.` : `Alt text applied to image ${index + 1}.`);
   show.addEventListener('click', () => send({ type: 'lumen:highlight', id: issue.id }));
   return li;
 }
 
 async function writeAlt(issue: ImageIssue, index: number, li: HTMLElement, field: HTMLTextAreaElement, gen: HTMLButtonElement, apply: HTMLButtonElement): Promise<void> {
+  const mode = modeFor(policy()); // fixed now: a later scan of another page must not change where this one's content goes
   setBusy(gen, true, 'Writing…');
   li.querySelectorAll('.badge, .error').forEach((n) => n.remove());
   try {
     const { prompts, cloudModel } = await settingsPromise;
-    const r = await generate([prompts.altText, await imagePart(issue.src)], { privacy: privacy(), cloudModel, withImages: true });
+    const r = await generate([prompts.altText, await imagePart(issue.src)], { mode, cloudModel, withImages: true });
     field.value = tidyAlt(r.text);
     field.dispatchEvent(new Event('input'));
     apply.disabled = false;
@@ -174,12 +216,13 @@ function renderLink(issue: LinkIssue, index: number): HTMLLIElement {
   li.append(desc, label, field, row);
 
   gen.addEventListener('click', async () => {
+    const mode = modeFor(policy());
     setBusy(gen, true, 'Thinking…');
     li.querySelectorAll('.badge, .error').forEach((n) => n.remove());
     try {
       const { prompts, cloudModel } = await settingsPromise;
-      const prompt = fill(prompts.linkText, { text: issue.text || '(empty)', href: issue.href, context: issue.context });
-      const r = await generate([prompt], { privacy: privacy(), cloudModel });
+      const prompt = fill(prompts.linkText, { text: issue.text || '(empty)', href: safeHref(issue.href), context: issue.context });
+      const r = await generate([prompt], { mode, cloudModel });
       field.value = tidyLink(r.text);
       field.dispatchEvent(new Event('input'));
       apply.disabled = false;
@@ -188,7 +231,7 @@ function renderLink(issue: LinkIssue, index: number): HTMLLIElement {
     } catch (err) { errorLine(li, err); }
     finally { setBusy(gen, false, 'Suggest text'); }
   });
-  wireApply(li, field, apply, `link ${index + 1}`, () => ({ type: 'lumen:apply-link', id: issue.id, label: field.value.trim() }),
+  wireApply(li, row, field, apply, `link ${index + 1}`, () => ({ type: 'lumen:apply-link', id: issue.id, label: field.value.trim() }),
     () => `Link ${index + 1} now reads "${field.value.trim()}" to screen readers.`);
   show.addEventListener('click', () => send({ type: 'lumen:highlight', id: issue.id }));
   return li;
@@ -197,20 +240,25 @@ function renderLink(issue: LinkIssue, index: number): HTMLLIElement {
 /**
  * Apply button with visible and announced feedback: the button turns into
  * "Applied ✓", a result line appears under it, and the element flashes on the
- * page. Editing the text re-enables Apply. Failures are shown, never silent.
+ * page. Editing the text re-enables Apply, and Undo puts the page's own version
+ * back. Failures are shown, never silent.
  */
 function wireApply(
   li: HTMLElement,
+  row: HTMLElement,
   field: HTMLInputElement | HTMLTextAreaElement,
   apply: HTMLButtonElement,
   what: string,
-  message: () => { type: string; id: string },
+  message: () => Extract<PageMessage, { type: 'lumen:apply-alt' | 'lumen:apply-link' }>,
   successText: () => string,
 ): void {
   const result = document.createElement('p');
   result.className = 'apply-result';
   result.hidden = true;
   li.append(result);
+  const undo = button('Undo', what);
+  undo.hidden = true;
+  row.append(undo);
 
   const reset = () => {
     setText(apply, 'Apply to page');
@@ -236,6 +284,7 @@ function wireApply(
       const res = await send<{ ok: boolean } | undefined>(msg);
       if (!res?.ok) throw new Error(`Couldn't find ${what} on the page any more. Scan the page again.`);
       void send({ type: 'lumen:highlight', id: msg.id, color: '#2e7d32' }).catch(() => undefined);
+      undo.hidden = false;
       setText(apply, 'Applied ✓');
       apply.classList.add('applied');
       apply.setAttribute('aria-busy', 'false');
@@ -246,9 +295,28 @@ function wireApply(
     } catch (err) {
       setBusy(apply, false, 'Apply to page');
       const m = err instanceof Error ? err.message : String(err);
-      result.textContent = /Receiving end does not exist|Could not establish connection/.test(m)
-        ? 'The page was reloaded or changed. Scan the page again, then apply.'
-        : `Error: ${m}`;
+      result.textContent = `Error: ${m}`;
+      result.classList.add('error');
+      result.hidden = false;
+      announce(result.textContent);
+    }
+  });
+
+  undo.addEventListener('click', async () => {
+    try {
+      const { id } = message();
+      const res = await send<{ ok: boolean } | undefined>({ type: 'lumen:undo', id });
+      if (!res?.ok) throw new Error(`Couldn't find ${what} on the page any more. Scan the page again.`);
+      reset();
+      undo.hidden = true; // so move focus to a control that stays
+      if (apply.disabled) li.querySelector<HTMLElement>('button')?.focus(); else apply.focus();
+      result.textContent = `Undone. The page's own version of ${what} is back.`;
+      result.classList.remove('error');
+      result.hidden = false;
+      announce(result.textContent);
+      scheduleRecheck();
+    } catch (err) {
+      result.textContent = errorText(err);
       result.classList.add('error');
       result.hidden = false;
       announce(result.textContent);
@@ -290,14 +358,16 @@ async function scan(): Promise<void> {
   const btn = $<HTMLButtonElement>('scan');
   setBusy(btn, true, 'Scanning…');
   try {
-    tabId = await activeTabId();
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['axe.min.js', 'content.js'] });
+    await host.connect();
     lastScan = await send<ScanResult>({ type: 'lumen:scan' });
+    cloudAllowed = false;
+    $('stale').hidden = true;
+    renderPolicy();
     $('page-title').textContent = lastScan.title || lastScan.url;
     $('img-count').textContent = String(lastScan.images.length);
     $('link-count').textContent = String(lastScan.links.length);
     $('img-list').replaceChildren(...(lastScan.images.length ? lastScan.images.map(renderImage) : [emptyItem('No images on this page need alt text.')]));
-    const ok = lastScan.imagesOk ?? [];
+    const ok = lastScan.imagesOk;
     $('img-ok-count').textContent = `${ok.length} image${ok.length === 1 ? '' : 's'}`;
     $('img-ok-list').replaceChildren(...ok.map(renderImageOk));
     $<HTMLDetailsElement>('img-ok').hidden = ok.length === 0;
@@ -308,7 +378,7 @@ async function scan(): Promise<void> {
     const summary = `Checked ${checked} image${checked === 1 ? '' : 's'}: ${lastScan.images.length} need${lastScan.images.length === 1 ? 's' : ''} alt text, ${ok.length} already OK. Found ${lastScan.links.length} unclear link${lastScan.links.length === 1 ? '' : 's'}.`;
     $('summary').textContent = summary;
     $('results').hidden = false;
-    announce(summary);
+    announce(`${summary} ${$('page-policy-text').textContent}`);
     $('results-h').setAttribute('tabindex', '-1');
     $('results-h').focus();
     $('ask-log').replaceChildren();
@@ -328,6 +398,7 @@ async function fixAllImages(): Promise<void> {
   setBusy(btn, true, 'Writing alt text…');
   const items = [...$('img-list').querySelectorAll<HTMLLIElement>('li')];
   for (const [i, li] of items.entries()) {
+    if (!li.isConnected) break; // another page was scanned
     announce(`Writing alt text for image ${i + 1} of ${items.length}.`);
     li.querySelector<HTMLButtonElement>('button')?.click();
     // wait for that item's request to finish before starting the next (keeps the device responsive)
@@ -340,11 +411,19 @@ async function fixAllImages(): Promise<void> {
   announce('Finished writing alt text. Review each one, then apply.');
 }
 
+let stopSimplify = false;
+
 async function simplify(): Promise<void> {
   const btn = $<HTMLButtonElement>('simplify');
+  const stop = $<HTMLButtonElement>('simplify-stop');
   const out = $('simplified');
-  if (!lastScan?.text) { announce('Scan a page first.'); return; }
+  if (!lastScan?.text) { announce('There is no text to simplify on this page.'); return; }
+  const text = lastScan.text;
+  const long = text.length > LONG_TEXT;
+  const whole = modeFor(policy(long));
   setBusy(btn, true, 'Simplifying…');
+  stopSimplify = false;
+  stop.hidden = false;
   // Visible progress (not a live region: streaming text would flood a screen reader).
   const progress = document.createElement('p');
   progress.className = 'progress';
@@ -353,40 +432,92 @@ async function simplify(): Promise<void> {
   out.hidden = false;
   const t0 = performance.now();
   let gotText = false;
+  let part = '';
   const tick = () => {
-    const s = Math.round((performance.now() - t0) / 1000);
-    progress.textContent = gotText ? `Writing… ${s} s` : `Starting the AI model… ${s} s (the first run on a device can take up to a minute)`;
+    const secs = Math.round((performance.now() - t0) / 1000);
+    progress.textContent = gotText ? `Writing${part}… ${secs} s` : `Starting the AI model… ${secs} s (the first run on a device can take up to a minute)`;
   };
   tick();
   const timer = setInterval(tick, 1000);
-  announce('Simplifying the page. This can take up to a minute on your device.');
   try {
     const { prompts, cloudModel } = await settingsPromise;
-    const r = await generateStream([fill(prompts.simplify, { text: lastScan.text })], { privacy: privacy(), cloudModel }, (soFar) => {
-      gotText = true;
-      body.textContent = soFar;
-    });
-    clearInterval(timer);
-    body.textContent = r.text;
+    let r: AIResult | null = null;
+    if (!long || whole !== InferenceMode.ONLY_ON_DEVICE) {
+      announce(long ? 'This page is long, so Lumen is using cloud AI for it.' : 'Simplifying the page. This can take up to a minute on your device.');
+      try {
+        r = await generateStream([fill(prompts.simplify, { text })], { mode: whole, cloudModel }, (soFar) => { gotText = true; body.textContent = tidyPlain(soFar); return !stopSimplify; });
+      } catch (err) {
+        if (!long || gotText || stopSimplify) throw err; // offline: work through a long page on the device instead
+      }
+    }
+    if (!r) {
+      // Long text on the device: one part at a time, because a small model can't read it all at once.
+      const parts = splitText(text);
+      announce(`This page is long. Lumen is working through it on your device in ${parts.length} parts. Press Stop at any time.`);
+      const done: string[] = [];
+      for (const [i, chunk] of parts.entries()) {
+        part = ` part ${i + 1} of ${parts.length}`;
+        const p = await generateStream([fill(prompts.simplify, { text: chunk })], { mode: InferenceMode.ONLY_ON_DEVICE, cloudModel }, (soFar) => {
+          gotText = true;
+          body.textContent = tidyPlain([...done, soFar].join('\n\n'));
+          return !stopSimplify;
+        });
+        done.push(p.text);
+        r = { text: done.join('\n\n'), source: p.source, ms: Math.round(performance.now() - t0) };
+        if (stopSimplify) break;
+      }
+    }
+    if (!r) throw new Error('There is no text to simplify on this page.');
+    body.textContent = tidyPlain(r.text);
     progress.replaceChildren(badge(r));
     out.focus();
-    void speak(r.text);
-    announce(`Plain-language version ready, ${r.source === 'on_device' ? 'written on your device' : 'written in the cloud'} in ${(r.ms / 1000).toFixed(0)} seconds.`);
+    void speak(body.textContent);
+    announce(`${stopSimplify ? 'Stopped. Part of the plain-language version is ready' : 'Plain-language version ready'}, ${whereText(r)} in ${(r.ms / 1000).toFixed(0)} seconds.`);
   } catch (err) {
-    clearInterval(timer);
     progress.textContent = '';
-    body.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+    body.textContent = errorText(err);
     body.className = 'error';
     announce(body.textContent);
-  } finally { setBusy(btn, false, 'Simplify this page'); }
+  } finally {
+    clearInterval(timer);
+    if (document.activeElement === stop) btn.focus();
+    stop.hidden = true;
+    setBusy(btn, false, 'Simplify this page');
+  }
 }
 
+function whereText(r: AIResult): string {
+  return r.source === 'on_device' ? 'written on your device' : r.source === 'in_cloud' ? 'written in the cloud' : 'source not reported';
+}
+
+$('simplify-stop').addEventListener('click', () => {
+  stopSimplify = true;
+  announce('Stopping.');
+});
+$('get-device-ai').addEventListener('click', () => void getDeviceAI());
+$('page-policy-btn').addEventListener('click', () => {
+  cloudAllowed = !cloudAllowed;
+  renderPolicy();
+  announce($('page-policy-text').textContent ?? '');
+});
+host.onPageChange(() => {
+  if (!lastScan || !$('stale').hidden) return;
+  $('stale').hidden = false;
+  announce('You moved to another page. These results are for the page you scanned.');
+});
 $('scan').addEventListener('click', scan);
 $('fix-all-images').addEventListener('click', fixAllImages);
 $('simplify').addEventListener('click', simplify);
 document.querySelectorAll('input[name="privacy"]').forEach((r) => r.addEventListener('change', () => {
-  announce(privacy() === 'device-only' ? 'Only on my device. Lumen will not send page content or your questions to cloud AI.' : 'On-device first, cloud if needed.');
+  void storage?.set({ privacy: privacy() });
+  renderPolicy();
+  announce(privacy() === 'device-only' ? 'Only on my device. Lumen will not send page content or your questions to cloud AI.' : 'Automatic. Private pages stay on your device.');
 }));
+storage?.get('privacy').then((v) => {
+  if (v.privacy !== 'device-only') return;
+  document.querySelector<HTMLInputElement>('input[name="privacy"][value="device-only"]')!.checked = true;
+  renderPolicy();
+}).catch(() => undefined);
 void checkDevice();
 settingsPromise = settingsPromise.catch(() => loadRemoteSettings());
 
@@ -402,10 +533,10 @@ function renderRules(a: AuditSummary): void {
   $('rule-list').replaceChildren(...a.rules.map((r) => {
     const li = document.createElement('li');
     li.textContent = `${r.help}: ${r.count} (${r.impact})`;
-    if (r.lumenFixes) {
+    if (r.fixable) {
       const tag = document.createElement('span');
       tag.className = 'rule-fix';
-      tag.textContent = ' · Lumen can fix this';
+      tag.textContent = r.fixable === r.count ? ' · Lumen can fix this' : ` · Lumen can fix ${r.fixable}`;
       li.append(tag);
     }
     return li;
@@ -467,9 +598,9 @@ async function copyOwnerMessage(): Promise<void> {
 
 // ---------- Read answers aloud (optional, for people who don't use a screen reader) ----------
 const readAloud = $<HTMLInputElement>('read-aloud');
-chrome.storage?.local.get('readAloud').then((v) => { readAloud.checked = Boolean(v.readAloud); }).catch(() => undefined);
+storage?.get('readAloud').then((v) => { readAloud.checked = Boolean(v.readAloud); }).catch(() => undefined);
 readAloud.addEventListener('change', () => {
-  void chrome.storage?.local.set({ readAloud: readAloud.checked });
+  void storage?.set({ readAloud: readAloud.checked });
   if (!readAloud.checked) speechSynthesis.cancel();
   announce(readAloud.checked ? 'Lumen will read answers aloud.' : 'Lumen will not read answers aloud.');
 });
@@ -507,6 +638,8 @@ async function ask(question: string): Promise<void> {
   const q = question.trim();
   if (!q) { announce('Type a question first.'); $('ask-q').focus(); return; }
   if (!lastScan) { announce('Scan a page first.'); return; }
+  const mode = modeFor(policy());
+  const { title, outline, blocks } = lastScan;
   const btn = $<HTMLButtonElement>('ask-btn');
   setBusy(btn, true, 'Thinking…');
   const li = document.createElement('li');
@@ -520,21 +653,20 @@ async function ask(question: string): Promise<void> {
   $('ask-log').prepend(li);
   try {
     const { prompts, cloudModel } = await settingsPromise;
-    const o = lastScan.outline ?? { headings: [], controls: [] };
     const prompt = fill(prompts.ask, {
       question: q,
-      title: lastScan.title,
-      headings: o.headings.join('\n') || '(none)',
-      controls: o.controls.join('\n') || '(none)',
-      text: lastScan.text.slice(0, 3500),
+      title,
+      headings: pickRelevant(outline.headings, q, 1200, 500).join('\n') || '(none)',
+      controls: pickRelevant(outline.controls, q, 2000).join('\n') || '(none)',
+      text: pickRelevant(blocks.map((b) => b.slice(0, 600)), q, 3500, 1200).join('\n'),
     });
-    const r = await generateStream([prompt], { privacy: privacy(), cloudModel }, (soFar) => { ap.textContent = soFar; });
-    ap.textContent = r.text;
+    const r = await generateStream([prompt], { mode, cloudModel }, (soFar) => { ap.textContent = tidyPlain(soFar); });
+    ap.textContent = tidyPlain(r.text);
     li.append(badge(r));
-    announce(r.text);
-    void speak(r.text);
+    announce(ap.textContent);
+    void speak(ap.textContent);
   } catch (err) {
-    ap.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+    ap.textContent = errorText(err);
     ap.className = 'a error';
     announce(ap.textContent);
   } finally { setBusy(btn, false, 'Ask'); }
@@ -555,12 +687,14 @@ async function toggleMic(): Promise<void> {
   const label = $('mic-label');
   if (recorder?.state === 'recording') { recorder.stop(); return; }
   if (!lastScan) { announce('Scan a page first.'); return; }
+  if (!cloudPermitted(policy())) { micStatus('Voice questions need cloud AI, which is off for this page. Type your question instead.'); return; }
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
-    await chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
-    micStatus('Allow the microphone in the tab that just opened, then come back and press Ask by voice again.');
+    micStatus(await host.openMicPermission()
+      ? 'Allow the microphone in the tab that just opened, then come back and press Ask by voice again.'
+      : 'Lumen needs the microphone for voice questions. Allow it in your browser, or type your question.');
     return;
   }
   const chunks: Blob[] = [];
@@ -577,13 +711,10 @@ async function toggleMic(): Promise<void> {
     try {
       const wav = await recordingToWav(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
       const { cloudModel } = await settingsPromise;
-      const r = await transcribe(wav, {
-        privacy: privacy(),
-        cloudModel,
-        onDownload: (f) => { $('mic-status').textContent = `Getting on-device speech ready (one time): ${Math.round(f * 100)}%`; },
-      });
+      if (!cloudPermitted(policy())) throw new Error('Cloud AI was switched off, so your recording was not sent.');
+      const r = await transcribe(wav, cloudModel);
       if (!r.text) throw new Error("Lumen didn't hear a question. Try again, a little closer to the microphone.");
-      micStatus(`Heard: "${r.text}" (${r.source === 'on_device' ? 'on your device' : 'in the cloud'})`);
+      micStatus(`Heard: "${r.text}" (in the cloud)`);
       await ask(r.text);
     } catch (err) {
       micStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -606,3 +737,4 @@ $('ask-form').addEventListener('submit', (e) => {
   input.value = '';
 });
 document.querySelectorAll<HTMLButtonElement>('.suggest .chip').forEach((b) => b.addEventListener('click', () => void ask(b.textContent ?? '')));
+renderPolicy();

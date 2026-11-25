@@ -30,6 +30,17 @@ export function tidyAlt(raw: string, maxChars = 125): string {
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
+/** Plain text for the page: models often add markdown, which would show (and be read aloud) as symbols. Safe to run on half-streamed text. */
+export function tidyPlain(raw: string): string {
+  return raw
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
+    .replace(/\*\*|__/g, '')
+    .replace(/^([ \t]*)[*+-][ \t]+/gm, '$1• ')
+    .replace(/\[([^\]]+)\]\([^)\s]*\)/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Link text: a short label, at most 6 words / 60 characters, no trailing period. */
 export function tidyLink(raw: string, maxWords = 6, maxChars = 60): string {
   const words = clean(raw).replace(/[.!]+$/, '').split(/\s+/).filter(Boolean).slice(0, maxWords).join(' ');

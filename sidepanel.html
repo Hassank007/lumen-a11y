@@ -18,12 +18,18 @@
         <h2 id="privacy-h">Privacy</h2>
         <fieldset>
           <legend>Where can Lumen run AI?</legend>
-          <label><input type="radio" name="privacy" value="hybrid" checked /> On my device first, cloud if needed</label>
+          <label><input type="radio" name="privacy" value="auto" checked /> Automatic: private pages stay on my device; other pages use it first, cloud if needed</label>
           <label><input type="radio" name="privacy" value="device-only" /> Only on my device (no cloud AI)</label>
         </fieldset>
+        <div id="page-policy" class="page-policy" hidden>
+          <p id="page-policy-text"></p>
+          <button id="page-policy-btn" type="button" hidden>Allow cloud AI for this page</button>
+        </div>
         <p id="device-status" class="hint">Checking on-device AI…</p>
+        <button id="get-device-ai" type="button" hidden>Download on-device AI</button>
       </section>
 
+      <p id="stale" class="stale" hidden>You moved to another page. The results below are for the page you scanned. Scan again to check this one.</p>
       <button id="scan" class="primary" type="button">Scan this page</button>
 
       <section id="results" aria-labelledby="results-h" hidden>
@@ -65,6 +71,7 @@
               <button type="button" id="mic"><span aria-hidden="true">🎤 </span><span id="mic-label">Ask by voice</span></button>
             </div>
           </form>
+          <p id="voice-note" class="hint"></p>
           <p id="mic-status" class="hint" hidden></p>
           <label class="inline-check"><input type="checkbox" id="read-aloud" /> Read answers aloud (for people who don't use a screen reader)</label>
           <div class="row suggest" role="group" aria-label="Example questions">
@@ -92,8 +99,11 @@
 
         <section aria-labelledby="simplify-h" class="card">
           <h3 id="simplify-h">Plain-language version</h3>
-          <p class="hint">Rewrites the page's main text in short sentences and common words.</p>
-          <button id="simplify" type="button">Simplify this page</button>
+          <p class="hint">Rewrites the page's main text in short sentences and common words. AI can leave things out or get them wrong, so check the page itself for anything important, such as medicines, money or deadlines.</p>
+          <div class="row">
+            <button id="simplify" type="button">Simplify this page</button>
+            <button id="simplify-stop" type="button" hidden>Stop</button>
+          </div>
           <div id="simplified" class="simplified" tabindex="-1" hidden></div>
         </section>
       </section>

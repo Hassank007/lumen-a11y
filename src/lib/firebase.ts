@@ -21,6 +21,13 @@ let app: FirebaseApp | null = null;
 /** Firebase app with App Check. Firebase AI Logic requires App Check. */
 export function getFirebaseApp(): FirebaseApp {
   if (app) return app;
+  if (!isConfigured) {
+    // No Firebase project in this build. Firebase AI Logic's on-device mode makes no
+    // cloud call, so placeholder values are enough for it. Cloud AI, App Check and
+    // Remote Config need a real project.
+    app = initializeApp({ apiKey: 'on-device-only', projectId: 'on-device-only', appId: 'on-device-only' });
+    return app;
+  }
   app = initializeApp(firebaseConfig);
 
   const debug = env.VITE_APPCHECK_DEBUG === 'true';
