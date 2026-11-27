@@ -4,6 +4,8 @@ Lumen is a Chrome extension that finds accessibility barriers on regular web pag
 
 Built for the **#BuildHybridAI 2026** hackathon with **Firebase AI Logic** hybrid inference.
 
+**Demo video (2:38):** https://youtu.be/SotmdY4cROI
+
 ## Why
 
 - 95.9% of the top one million home pages have detectable WCAG failures, and missing alt text and vague links are among the most common ([WebAIM Million 2026](https://webaim.org/projects/million/)).
