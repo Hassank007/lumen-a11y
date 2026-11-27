@@ -32,7 +32,14 @@ export function modeFor(p: PolicyInput): InferenceMode {
 }
 
 /** One plain sentence or two about this page, shown after a scan. */
-export function policySummary(p: PolicyInput, reasons: string[]): string {
+/** `stale`: the user has moved to another page since the scan; the summary still describes the scanned page, and says so. */
+export function policySummary(p: PolicyInput, reasons: string[], stale = false): string {
+  const s = pageSummary(p, reasons);
+  if (!stale || !p.cloudConfigured || p.choice === 'device-only') return s; // these hold for every page
+  return `${s.replace(/^This page/, 'The page you scanned')} Scan again to check the page that's open now.`;
+}
+
+function pageSummary(p: PolicyInput, reasons: string[]): string {
   if (!p.cloudConfigured) return 'This copy of Lumen has no cloud AI set up, so AI runs only on this device.';
   if (p.choice === 'device-only') return 'Only on my device is on, so no page content goes to cloud AI.';
   if (!p.sensitive) return "This page doesn't look private. AI runs on this device first, and in the cloud if needed or when the text is long.";

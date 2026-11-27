@@ -42,7 +42,7 @@ function renderPolicy(): void {
   const box = $('page-policy');
   box.hidden = !lastScan;
   box.classList.toggle('private', Boolean(lastScan) && !cloudPermitted(p));
-  $('page-policy-text').textContent = policySummary(p, lastScan?.privacy.reasons ?? []);
+  $('page-policy-text').textContent = policySummary(p, lastScan?.privacy.reasons ?? [], !$('stale').hidden);
   const b = $<HTMLButtonElement>('page-policy-btn');
   b.hidden = !p.sensitive || p.choice === 'device-only' || !isConfigured;
   b.textContent = cloudAllowed ? 'Keep this page on my device' : 'Allow cloud AI for this page';
@@ -362,6 +362,7 @@ async function scan(): Promise<void> {
     lastScan = await send<ScanResult>({ type: 'lumen:scan' });
     cloudAllowed = false;
     $('stale').hidden = true;
+    clearSimplified();
     renderPolicy();
     $('page-title').textContent = lastScan.title || lastScan.url;
     $('img-count').textContent = String(lastScan.images.length);
@@ -412,6 +413,14 @@ async function fixAllImages(): Promise<void> {
 }
 
 let stopSimplify = false;
+
+/** A new scan replaces the plain-language version of the old page, and stops one still being written. */
+function clearSimplified(): void {
+  stopSimplify = true;
+  const out = $('simplified');
+  out.replaceChildren();
+  out.hidden = true;
+}
 
 async function simplify(): Promise<void> {
   const btn = $<HTMLButtonElement>('simplify');
@@ -467,6 +476,7 @@ async function simplify(): Promise<void> {
         if (stopSimplify) break;
       }
     }
+    if (!body.isConnected) return; // another page was scanned meanwhile
     if (!r) throw new Error('There is no text to simplify on this page.');
     body.textContent = tidyPlain(r.text);
     progress.replaceChildren(badge(r));
@@ -474,6 +484,7 @@ async function simplify(): Promise<void> {
     void speak(body.textContent);
     announce(`${stopSimplify ? 'Stopped. Part of the plain-language version is ready' : 'Plain-language version ready'}, ${whereText(r)} in ${(r.ms / 1000).toFixed(0)} seconds.`);
   } catch (err) {
+    if (!body.isConnected) return;
     progress.textContent = '';
     body.textContent = errorText(err);
     body.className = 'error';
@@ -503,6 +514,7 @@ $('page-policy-btn').addEventListener('click', () => {
 host.onPageChange(() => {
   if (!lastScan || !$('stale').hidden) return;
   $('stale').hidden = false;
+  renderPolicy();
   announce('You moved to another page. These results are for the page you scanned.');
 });
 $('scan').addEventListener('click', scan);

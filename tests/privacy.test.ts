@@ -54,6 +54,11 @@ describe('modeFor', () => {
     expect(policySummary({ ...base, sensitive: true }, ['it has a password field'])).toBe('This page looks private: it has a password field. Lumen is using only on-device AI here.');
     expect(policySummary(base, [])).toMatch(/doesn't look private/);
   });
+  it('after the user moves to another page, says the summary is for the scanned page', () => {
+    expect(policySummary(base, [], true)).toMatch(/^The page you scanned doesn't look private\..* Scan again to check the page that's open now\.$/);
+    expect(policySummary({ ...base, sensitive: true }, ['it has a password field'], true)).toBe("The page you scanned looks private: it has a password field. Lumen is using only on-device AI here. Scan again to check the page that's open now.");
+    expect(policySummary({ ...base, choice: 'device-only' }, [], true)).toBe(policySummary({ ...base, choice: 'device-only' }, []));
+  });
 });
 
 describe('image and link preparation', () => {
